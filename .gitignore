@@ -1,0 +1,10 @@
+*.pdb
+ols.json
+*.sync
+*.exe
+*_TODO
+*log_output
+
+*.vs
+
+*.sln

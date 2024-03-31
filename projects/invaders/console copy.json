@@ -1,0 +1,181 @@
+{
+	"font_family_path": "",
+	"entries": [
+		{
+			"level": 0,
+			"is_user": false,
+			"content": "Rendering glyph '0' codepoint 48"
+		},
+		{
+			"level": 10,
+			"is_user": false,
+			"content": "ESC to close "
+		},
+		{
+			"is_user": false,
+			"content": "F1 to open/expand/contract ",
+			"level": 10
+		},
+		{
+			"is_user": false,
+			"content": "Created a texture",
+			"level": 10
+		},
+		{
+			"level": 10,
+			"is_user": false,
+			"content": "Created a Render Target"
+		},
+		{
+			"level": 10,
+			"is_user": false,
+			"content": "\tLayout: COLOR_ATTACHMENT_OPTIMAL"
+		},
+		{
+			"is_user": false,
+			"content": "\tFormat: R32G32B32A32_SFLOAT",
+			"level": 10
+		},
+		{
+			"level": 10,
+			"is_user": false,
+			"content": "Created a texture"
+		},
+		{
+			"level": 10,
+			"is_user": false,
+			"content": "Created a Render Target"
+		},
+		{
+			"content": "\tLayout: COLOR_ATTACHMENT_OPTIMAL",
+			"level": 10,
+			"is_user": false
+		},
+		{
+			"is_user": false,
+			"content": "\tFormat: R32G32B32A32_SFLOAT",
+			"level": 10
+		},
+		{
+			"is_user": false,
+			"content": "Created a texture",
+			"level": 10
+		},
+		{
+			"is_user": false,
+			"content": "Created a Render Target",
+			"level": 10
+		},
+		{
+			"level": 10,
+			"is_user": false,
+			"content": "\tLayout: COLOR_ATTACHMENT_OPTIMAL"
+		},
+		{
+			"is_user": false,
+			"content": "\tFormat: R32G32B32A32_SFLOAT",
+			"level": 10
+		},
+		{
+			"level": 0,
+			"is_user": false,
+			"content": "Rendering glyph '\t' codepoint 9"
+		},
+		{
+			"level": 0,
+			"is_user": false,
+			"content": "Rendering glyph '6' codepoint 54"
+		},
+		{
+			"level": 0,
+			"is_user": false,
+			"content": "Rendering glyph '7' codepoint 55"
+		},
+		{
+			"level": 0,
+			"is_user": false,
+			"content": "Resized imm vertex buffer to fit 2000 vertices and 3000 indices"
+		},
+		{
+			"level": 0,
+			"is_user": false,
+			"content": "Resized imm vertex buffer to fit 4000 vertices and 6000 indices"
+		},
+		{
+			"is_user": true,
+			"content": "> test",
+			"level": 10
+		},
+		{
+			"level": 30,
+			"is_user": false,
+			"content": "No such command 'test'. Use command 'see_commands' for a list of all commands."
+		},
+		{
+			"level": 10,
+			"is_user": false,
+			"content": "Did you mean:\n\treset_font"
+		},
+		{
+			"level": 0,
+			"is_user": false,
+			"content": "Rendering glyph '\n' codepoint 10"
+		},
+		{
+			"is_user": true,
+			"content": "> test",
+			"level": 10
+		},
+		{
+			"level": 30,
+			"is_user": false,
+			"content": "No such command 'test'. Use command 'see_commands' for a list of all commands."
+		},
+		{
+			"level": 10,
+			"is_user": false,
+			"content": "Did you mean:\n\treset_font"
+		},
+		{
+			"content": "> test",
+			"level": 10,
+			"is_user": true
+		},
+		{
+			"is_user": false,
+			"content": "No such command 'test'. Use command 'see_commands' for a list of all commands.",
+			"level": 30
+		},
+		{
+			"content": "Did you mean:\n\treset_font",
+			"level": 10,
+			"is_user": false
+		},
+		{
+			"level": 0,
+			"is_user": false,
+			"content": "Rendering glyph 'w' codepoint 119"
+		},
+		{
+			"level": 10,
+			"is_user": true,
+			"content": "> write"
+		}
+	],
+	"command_history": [
+		"test",
+		"write"
+	],
+	"last_suggestions": [],
+	"display_level": 10,
+	"caret_anim_time": 0.060,
+	"caret_color": [
+		1.000,
+		1.000,
+		1.000,
+		1.000
+	],
+	"font_size": 18,
+	"focused": true,
+	"openess": 1
+}
