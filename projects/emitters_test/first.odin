@@ -171,22 +171,26 @@ Particle_Vertex :: struct {
     local_pos : lin.Vector2,
 }
 
-sbo : ^jvk.Storage_Buffer;
+
+sbo : ^jvk.Storage_Buffer; // This is where the particle data will be
+time_ubo : ^jvk.Uniform_Buffer; // Used for seed/life time tracking in compute shader
 cs : jvk.Compute_Shader;
 ctx : ^jvk.Compute_Context;
 compute_sem : vk.Semaphore;
 
+// Used in compute pipeline for simulating the particles
+// and used in particles drawing pipeline to generate the
+// geometry in the vertex shader
+emitter_ubo : ^jvk.Uniform_Buffer;
+
+// Pipeline & stuff for drawing the computed particles
 particles_vbo : ^jvk.Vertex_Buffer;
 particles_ibo : ^jvk.Index_Buffer;
-
-emitter_ubo : ^jvk.Uniform_Buffer;
 camera_ubo : ^jvk.Uniform_Buffer;
-time_ubo : ^jvk.Uniform_Buffer;
-
 particles_program : jvk.Shader_Program;
 particles_pipeline : ^jvk.Pipeline;
 
-emitter_transform : lin.Matrix4;
+emitter_transform : lin.Matrix4; // #Unused
 
 init :: proc() -> bool {
     
@@ -218,7 +222,6 @@ init :: proc() -> bool {
     _float :: struct {_ : f32};
     time_ubo = jvk.make_uniform_buffer(_float, .RAM_SYNCED);
 
-    
     jvk.bind_compute_storage_buffer(ctx, sbo, 0);
     jvk.bind_compute_uniform_buffer(ctx, time_ubo, 1);
 
@@ -265,7 +268,6 @@ init :: proc() -> bool {
     jvk.bind_uniform_buffer(particles_pipeline, emitter_ubo, 1);
     jvk.bind_storage_buffer(particles_pipeline, sbo, 2);
 
-
     window_size := gfx.get_window_size();
 
     emitter_transform = lin.identity(lin.Matrix4) * lin.translate({window_size.x/2, window_size.y/2, 0});
@@ -296,29 +298,25 @@ shutdown :: proc() -> bool {
 }
 
 simulate_game :: proc() -> bool {
-
-
     
     return true;
 }
 
 draw_game :: proc() -> bool {
-    
-    // TODO:
-    // Make async options in backend so all of this can run async with semaphores
 
-    jvk.set_buffer_data(time_ubo, &app.elapsed_seconds, size_of(f32)); // This syncs with transfer queue
+    // This buffer is stored in RAM so this is jsut an instant set
+    jvk.set_buffer_data(time_ubo, &app.elapsed_seconds, size_of(f32)); 
     
-    
-    jvk.do_compute(ctx, NUM_PARTICLES, signal_sem=compute_sem);  // This syncs with compute queue if this context is running
+    jvk.do_compute(ctx, NUM_PARTICLES, signal_sem=compute_sem);
 
     window_size := gfx.get_window_size();
 
-    
-
     jvk.begin_draw_surface(particles_pipeline, gfx.window_surface);
-    jvk.cmd_clear(particles_pipeline, clear_color={.05, .05, .1, 1.0});
-    jvk.cmd_draw_indexed(particles_pipeline, particles_vbo, particles_ibo);
+
+        jvk.cmd_clear(particles_pipeline, clear_color={.05, .05, .1, 1.0});
+
+        jvk.cmd_draw_indexed(particles_pipeline, particles_vbo, particles_ibo);
+
     jvk.end_draw(particles_pipeline, wait_sem=compute_sem); // This syncs with graphics queue
 
     return true;
