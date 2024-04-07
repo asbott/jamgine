@@ -111,6 +111,7 @@ FPS: %f `, imm_stats.num_vertices, imm_stats.num_indices, imm_stats.num_scissors
             imm.flush();
         }
         console.draw();
+        igui.draw();
 
         gfx.update_window();
 
