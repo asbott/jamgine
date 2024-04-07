@@ -23,7 +23,10 @@ import vk "vendor:vulkan"
 // In vulkan this is a lot higher (on my device ~1000000), but that is simply
 // too much and will use way to much VRAM in a single shader just to store the
 // samplers that could potentially be used.
-MAX_TEXTURES_PER_PIPELINE :: 32
+MAX_TEXTURES_PER_PIPELINE :: 128
+MAX_SCISSOR_BOXES_PER_PIPELINE :: 256
+
+DEFAULT_FONT_SIZE :: 16;
 
 Camera :: struct #packed {
     proj : lin.Matrix4,
@@ -51,8 +54,9 @@ Rendered_Text :: struct {
 VERTEX_TYPE_REGULAR :: 0
 VERTEX_TYPE_TEXT :: 1
 VERTEX_TYPE_CIRCLE :: 2
+VERTEX_TYPE_SHADOW_RECT :: 3
 
-DATA_INDEX_TRANSFORM_INDEX :: 0
+DATA_INDEX_SCISSOR_INDEX :: 0
 DATA_INDEX_TEXTURE_INDEX :: 1
 DATA_INDEX_VERTEX_TYPE :: 2
 
@@ -72,7 +76,7 @@ Stats :: struct {
     num_vertices : int,
     num_indices : int,
     num_textures : int,
-
+    num_scissors : int,
 }
 Clear_Request :: struct {
     aspect : vk.ImageAspectFlags,
@@ -83,6 +87,8 @@ Imm_Context :: struct {
     // One buffer per window frame so they can be stored in ram and reflected on gpu without screen flickering
     vbos                  : []^jvk.Vertex_Buffer,
     ibos                  : []^jvk.Index_Buffer,
+    camera_ubos           : []^jvk.Uniform_Buffer,
+    scissor_ubos          : []^jvk.Uniform_Buffer,
 
     current_vbo_size      : int,
     current_ibo_size      : int,
@@ -102,6 +108,7 @@ Imm_Context :: struct {
     texture_slots         : [dynamic]jvk.Texture,
     transforms            : [dynamic]lin.Matrix4,
     transform_stack       : [dynamic]lin.Matrix4,
+    scissor_boxes         : [dynamic]lin.Vector4,
     front_transform       : lin.Matrix4,
     next_transform_index  : int,
     next_texture_slot     : i32,
@@ -114,6 +121,8 @@ Imm_Context :: struct {
 
     default_font_family : ^gfxtext.Font_Family,
     default_font : ^gfxtext.Font_Variation,
+
+    current_scissor_index : int,
 }
 
 
@@ -125,13 +134,14 @@ transform_pos_vec3 :: proc(transform : lin.Matrix4, pos : lin.Vector3) -> lin.Ve
 }
 transform_pos :: proc{transform_pos_vec3}
 
-_make_vertex :: proc(using ctx : ^Imm_Context, pos : lin.Vector3, tint := gfx.WHITE, uv := lin.Vector2{0, 0}, texture_index : i32 = -1, transform_index : i32 = -1, vertex_type :i32= VERTEX_TYPE_REGULAR) -> Vertex{
+_make_vertex :: proc(using ctx : ^Imm_Context, pos : lin.Vector3, tint := gfx.WHITE, uv := lin.Vector2{0, 0}, texture_index : i32 = -1, vertex_type :i32= VERTEX_TYPE_REGULAR) -> Vertex{
     assert(active_pipeline != nil, "begin/flush mismatch; please call imm.begin() before drawing");
     v : Vertex;
     v.pos = pos;
     v.tint = tint;
     v.uv = uv;
-    v.data_indices[DATA_INDEX_TRANSFORM_INDEX] = transform_index;
+
+    v.data_indices[DATA_INDEX_SCISSOR_INDEX] = cast(i32)current_scissor_index;
     v.data_indices[DATA_INDEX_VERTEX_TYPE] = vertex_type;
     v.data_indices[DATA_INDEX_TEXTURE_INDEX] = texture_index;
     return v;
@@ -285,6 +295,7 @@ reset_stats :: proc(using ctx := imm_context) {
     stats.num_indices    = 0;
     stats.num_vertices   = 0;
     stats.num_textures   = 0;
+    stats.num_scissors   = 0;
 }
 
 set_render_target_ :: proc(target : jvk.Render_Target, using ctx := imm_context) {
@@ -397,6 +408,20 @@ clear_target :: proc(color : lin.Vector4, using ctx := imm_context) {
     jvk.end_draw(active_pipeline);
 }
 
+set_scissor_box :: proc(x, y, width, height : f32, using ctx := imm_context) {
+
+    if len(scissor_boxes) >= MAX_SCISSOR_BOXES_PER_PIPELINE {
+        _internal_flush(ctx);
+        _rebegin(ctx);
+    }
+
+    append(&scissor_boxes, lin.Vector4{x, y, width, height});
+    current_scissor_index = len(scissor_boxes)-1;
+
+    stats.num_scissors += 1;
+}
+
+
 rectangle_by_bounds :: proc(p : lin.Vector3, size : lin.Vector2, using ctx := imm_context, color := gfx.WHITE, texture : Maybe(jvk.Texture) = nil, uv_range := lin.Vector4{0, 0, 1, 1}, vertex_type :i32= VERTEX_TYPE_REGULAR) -> []Vertex {
     hs := size / 2;
     return rectangle_by_aabb(
@@ -474,6 +499,10 @@ rectangle_by_aabb_lined :: proc(BL, TL, TR, BR : lin.Vector3, color := gfx.WHITE
     return vertices[first_index:];
 }
 rectangle_lined :: proc { rectangle_by_bounds_lined, rectangle_by_aabb_lined }
+
+shadow_rectangle :: proc(p : lin.Vector3, size : lin.Vector2, smoothness : f32  = 0.05, width : f32 = 0.1, color := gfx.BLACK, using ctx := imm_context) -> []Vertex {
+    return rectangle_by_bounds(p, size, ctx=ctx, color=color, vertex_type = VERTEX_TYPE_SHADOW_RECT);    
+}
 
 triangle_isosceles :: proc(p : lin.Vector3, size : lin.Vector2, dir := lin.Vector3{0, 1, 0}, color := gfx.WHITE, using ctx := imm_context, texture : Maybe(jvk.Texture) = nil, uva := lin.Vector2{0, 0}, uvb := lin.Vector2{0, 1}, uvc := lin.Vector2{1, 0}) -> []Vertex {
     dir_norm := lin.normalize(dir);
@@ -625,6 +654,7 @@ begin :: proc(pipeline : ^jvk.Pipeline, using ctx := imm_context) {
 
     active_pipeline = pipeline;
     next_texture_slot = 0;
+    current_scissor_index = -1;
 }
 begin2d :: proc(using ctx := imm_context) {
     if active_target != nil {
@@ -644,39 +674,62 @@ _internal_flush :: proc(using ctx : ^Imm_Context) {
     assert(len(vertices) * size_of(Vertex) <= current_vbo_size, "VBO management error");
     assert(len(indices) * size_of(u32) <= current_ibo_size, "IBO management error");
 
-    vbo := vbos[gfx.window_surface.frame_index];
-    ibo := ibos[gfx.window_surface.frame_index];
-
-    if len(vertices) >= 0 { 
-        jvk.set_buffer_data(vbo, slice.as_ptr(vertices[:]), len(vertices) * size_of(Vertex));
-        jvk.set_buffer_data(ibo, slice.as_ptr(indices[:]), len(indices) * size_of(u32));
+    vbo         := vbos[gfx.window_surface.frame_index];
+    ibo         := ibos[gfx.window_surface.frame_index];
+    camera_ubo  := camera_ubos[gfx.window_surface.frame_index];
+    scissor_ubo := scissor_ubos[gfx.window_surface.frame_index];
     
-        for slot in 0..<next_texture_slot {
-            texture := texture_slots[slot]; 
-            // #Speed: bind only if not already bound
-            jvk.bind_texture(pipeline, texture, jvk.get_program_descriptor_binding(pipeline.program, "samplers"), cast(int)slot);
-        }
-    }
-    
-
-    if active_target != nil {
-        jvk.begin_draw(pipeline, active_target.(jvk.Render_Target));
-    } else {
-        jvk.begin_draw_surface(pipeline, gfx.window_surface);
-    }
-
-    if len(vertices) >= 0 {
-    
+    if len(vertices) > 0 {
         w, h := glfw.GetWindowSize(gfx.window);
         camera.viewport = {cast(f32)w, cast(f32)h};
         camera_copy := camera;
         camera_copy.view = lin.inverse(camera_copy.view);
-        jvk.cmd_set_push_constant(pipeline, &camera_copy, 0, size_of(Camera));
+
+        jvk.set_buffer_data(vbo, slice.as_ptr(vertices[:]), len(vertices) * size_of(Vertex));
+        jvk.set_buffer_data(ibo, slice.as_ptr(indices[:]), len(indices) * size_of(u32));
+        jvk.set_buffer_data(camera_ubo, &camera_copy, size_of(camera_copy));
+        jvk.set_buffer_data(scissor_ubo, builtin.raw_data(scissor_boxes[:]), size_of(lin.Vector4) * len(scissor_boxes));
+
+        has_camera_ubo, has_scissor_ubo, has_samplers : bool;
+
+        for db, i in pipeline.program.program_layout.descriptor_bindings {
+            if db.location == 0 && db.field.name == "samplers" && db.field.type.kind == .ARRAY && db.field.type.elem_type.kind == .SAMPLER2D {
+                has_samplers = true;
+            }
+
+            if db.location == 1 && db.kind == .UNIFORM_BUFFER && db.field.type.std140_size >= size_of(Camera) {
+                has_camera_ubo = true;
+            }
+
+            if db.location == 2 && db.kind == .UNIFORM_BUFFER && db.field.type.std140_size >= size_of(lin.Vector4) * MAX_SCISSOR_BOXES_PER_PIPELINE {
+                has_scissor_ubo = true;
+            }
+        }
+
+        if has_camera_ubo do jvk.bind_uniform_buffer(pipeline, camera_ubo, 1);
+        if has_scissor_ubo do jvk.bind_uniform_buffer(pipeline, scissor_ubo, 2);
+    
+        if has_samplers do for slot in 0..<next_texture_slot {
+            texture := texture_slots[slot]; 
+            // #Speed: bind only if not already bound
+            jvk.bind_texture(pipeline, texture, jvk.get_program_descriptor_binding(pipeline.program, "samplers"), cast(int)slot);
+        }
+
+        if active_target != nil {
+            jvk.begin_draw(pipeline, active_target.(jvk.Render_Target));
+        } else {
+            jvk.begin_draw_surface(pipeline, gfx.window_surface);
+        }
+    
+        //jvk.cmd_set_push_constant(pipeline, &camera_copy, 0, size_of(Camera));
         jvk.cmd_draw_indexed(pipeline, vbo, ibo, index_count=len(indices));
+
+        jvk.end_draw(pipeline);
     }
     
-    jvk.end_draw(pipeline);
-    
+    clear(&scissor_boxes);    
+    current_scissor_index = -1;
+
     stats.num_draw_calls += 1;
 }
 flush :: proc(using ctx := imm_context) {
@@ -704,6 +757,8 @@ allocate_gpu_buffers :: proc(using ctx : ^Imm_Context, num_vertices : int) {
     } else {
         ibos = make([]^jvk.Index_Buffer, gfx.window_surface.number_of_frames);
     }
+
+    
 
     for v,i in vbos {
         vbos[i] = jvk.make_vertex_buffer(make([]Vertex, num_vertices, allocator=context.temp_allocator), .RAM_SYNCED);
@@ -739,7 +794,7 @@ make_context :: proc (hint_vertices := 1000) -> ^Imm_Context {
     ok := false;
     default_font_family, ok = gfxtext.open_font_family(cast([^]byte)builtin.raw_data(data.BINARY_DATA_FONT_METROPOLIS), len(data.BINARY_DATA_FONT_METROPOLIS));
     assert(ok, "Failed loading default font");
-    default_font = gfxtext.make_font_variation(default_font_family, 18);
+    default_font = gfxtext.make_font_variation(default_font_family, DEFAULT_FONT_SIZE);
 
     pipeline_2d = jvk.make_pipeline(shaders.basic2d, gfx.window_surface.render_pass);
 
@@ -756,9 +811,22 @@ make_context :: proc (hint_vertices := 1000) -> ^Imm_Context {
     indices = make([dynamic]u32);
     transforms = make([dynamic]lin.Matrix4);
     transform_stack = make([dynamic]lin.Matrix4);
+    scissor_boxes = make([dynamic]lin.Vector4);
     front_transform = lin.identity(lin.Matrix4);
     texture_slots = make_dynamic_array_len([dynamic]jvk.Texture, MAX_TEXTURES_PER_PIPELINE);
     reserve_vertices(ctx, hint_vertices);
+
+    camera_ubos = make([]^jvk.Uniform_Buffer, gfx.window_surface.number_of_frames);
+    for _,i in camera_ubos {
+        camera_ubos[i] = jvk.make_uniform_buffer(Camera, .RAM_SYNCED);
+    }
+    scissor_ubos = make([]^jvk.Uniform_Buffer, gfx.window_surface.number_of_frames);
+    for _,i in scissor_ubos {
+        Scissor_Ubo :: struct {
+            scissors : [MAX_SCISSOR_BOXES_PER_PIPELINE]lin.Vector4,
+        };
+        scissor_ubos[i] = jvk.make_uniform_buffer(Scissor_Ubo, .RAM_SYNCED);
+    }
 
     return ctx;
 }
@@ -780,6 +848,13 @@ delete_context :: proc(using ctx : ^Imm_Context) {
 
     for vbo in vbos do jvk.destroy_vertex_buffer(vbo);
     for ibo in ibos do jvk.destroy_index_buffer(ibo);
+    for ubo in camera_ubos do jvk.destroy_uniform_buffer(ubo);
+    for ubo in scissor_ubos do jvk.destroy_uniform_buffer(ubo);
+
+    delete(vbos);
+    delete(ibos);
+    delete(camera_ubos);
+    delete(scissor_ubos);
 
     jvk.destroy_render_pass(text_atlas_pass);
 
@@ -791,6 +866,7 @@ delete_context :: proc(using ctx : ^Imm_Context) {
     delete(indices);
     delete(texture_slots);
     delete(transform_stack);
+    delete(scissor_boxes);
 
     gfxtext.delete_font_variation(default_font);
     

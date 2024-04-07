@@ -79,14 +79,17 @@ void main() {
         return;
     }
 
-    p.color = mix(emitter.start_color, emitter.end_color, life_time / 13);
-    p.size = mix(emitter.size_from, emitter.size_to, life_time / 13);
+    float life_time_factor = life_time / 13;
+    p.color = mix(emitter.start_color, emitter.end_color, life_time_factor);
+    p.size = mix(emitter.size_from, emitter.size_to, life_time_factor);
 
-    float angle = p.dir_angle + sin(life_time * rand(p.birth_time));
+    float birth_random = rand(p.birth_time);
+
+    float angle = p.dir_angle + sin(life_time * birth_random);
 
     vec2 dir = vec2(cos(angle), sin(angle));
 
-    p.pos = dir * life_time * 50 * rand(p.birth_time);
+    p.pos = dir * life_time * 50 * birth_random;
 
     emitter.particles[idx] = p;
 }
@@ -121,14 +124,14 @@ layout (binding = 2) buffer Emitter {
 };
 
 layout (location = 0) out vec4 v_color;
+layout (location = 1) out vec2 v_local_pos;
 
 void main() {
 
     Particle p = s_particles[a_particle_index];
 
     v_color = p.color;
-
-    
+    v_local_pos = a_local_pos;
 
     vec2 vert_pos = p.pos + a_local_pos * (p.size/2);
     gl_Position = (u_proj * u_view * u_model * vec4(vert_pos.x, vert_pos.y, 0.0, 1.0));
@@ -141,8 +144,13 @@ particle_frag_src :: `
 layout (location = 0) out vec4 o_result;
 
 layout (location = 0) in vec4 v_color;
+layout (location = 1) in vec2 v_local_pos;
 
 void main() {
+    float distance = length(v_local_pos - vec2(0.5, 0.5));
+    if (distance > 0.5 ) {
+        discard;
+    }
     o_result = v_color;
 }
 
@@ -198,8 +206,8 @@ init :: proc() -> bool {
     defer free(emitter);
     emitter.start_color = {.01, .01, 1.2, 1.0};
     emitter.end_color = {1.0, 1.0, 1.0, 0.0};
-    emitter.size_from = {0.8, 0.8};
-    emitter.size_to = {3.0, 3.0};
+    emitter.size_from = {1.8, 1.8};
+    emitter.size_to = {5.0, 5.0};
 
     for _, i in emitter.particles {
         p := &emitter.particles[i];

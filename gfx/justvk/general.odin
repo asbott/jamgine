@@ -7,6 +7,7 @@ import "core:builtin"
 import "core:c"
 import "core:runtime"
 import "core:slice"
+import "core:os"
 
 import vk "vendor:vulkan"
 import "vendor:glfw"
@@ -309,7 +310,6 @@ vk_debug_callback :: proc "system" (
     user_data: rawptr) -> b32 {
     context = runtime.default_context();
     context.logger = (cast(^log.Logger)user_data)^;
-
     if callback_data.pMessageIdName == "WARNING-Shader-OutputNotConsumed" do return false;
 
     log_proc : type_of(log.infof);
@@ -472,6 +472,7 @@ init :: proc(application_name := "Vulkan Game App") -> bool {
     vk.load_proc_addresses_instance(vk_instance);
 
     when ODIN_DEBUG {
+        
         debug_create_info : vk.DebugUtilsMessengerCreateInfoEXT;
         debug_create_info.sType = .DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
         debug_create_info.messageSeverity = {.VERBOSE, .WARNING, .ERROR};

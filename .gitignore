@@ -8,3 +8,5 @@ ols.json
 *.vs
 
 *.sln
+
+*.obj
