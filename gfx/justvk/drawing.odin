@@ -223,11 +223,12 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, using
     input_assembly.topology = .TRIANGLE_LIST;
     input_assembly.primitiveRestartEnable = false;
     
+    dynamic_states : []vk.DynamicState = {.VIEWPORT, .SCISSOR};
     dynamic_state_info : vk.PipelineDynamicStateCreateInfo;
     dynamic_state_info.sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state_info.dynamicStateCount = 2;
-    dynamic_states : []vk.DynamicState = {.VIEWPORT, .SCISSOR};
+    dynamic_state_info.dynamicStateCount = cast(u32)len(dynamic_states);
     dynamic_state_info.pDynamicStates = slice_to_multi_ptr(dynamic_states);
+    
 
     viewport : vk.Viewport;
     viewport.x = 0.0;
@@ -398,14 +399,15 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, using
     init_descriptor_set_allocator(&p.descriptor_set_allocator, program.descriptor_set_layout, program.program_layout, dc);
     
     p.master_set_handle, p.master_set = allocate_descriptor_set(&p.descriptor_set_allocator);
-
+    
+    // #Uniformcoherency, just look for highest binding and make the the len
     p.bind_records = make([]Bind_Record, p.num_descriptor_bindings);
     for db,i in program.program_layout.descriptor_bindings {
         type := to_vk_desciptor_type(db.kind);
         desc_count := 1 if db.field.type.kind != .ARRAY else db.field.type.elem_count;
-        // #Uniformcoherency
-        record := &p.bind_records[i];
-        record.binding_location = i;
+        
+        record := &p.bind_records[db.location];
+        record.binding_location = db.location;
         record.bound_resources = make(type_of(record.bound_resources), desc_count);
 
         for binding,arr_index in record.bound_resources {
@@ -650,7 +652,6 @@ begin_draw :: proc(pipeline : ^Pipeline, target : Render_Target) {
     scissor : vk.Rect2D;
     scissor.offset = {0, 0};
     scissor.extent = { cast(u32)target.width, cast(u32)target.height };
-
     vk.CmdSetViewport(pipeline.command_buffer, 0, 1, &viewport);
     vk.CmdSetScissor(pipeline.command_buffer, 0, 1, &scissor);
 }
@@ -746,4 +747,33 @@ cmd_clear :: proc(pipeline : ^Pipeline, clear_mask : vk.ImageAspectFlags = { .CO
 cmd_set_push_constant :: proc(pipeline : ^Pipeline, data : rawptr, offset : int, size : int) {
      // #Limitation #Incomplete (.VERTEX)
     vk.CmdPushConstants(pipeline.command_buffer, pipeline.vk_layout, {.VERTEX}, cast(u32)offset, cast(u32)size, data);
+}
+
+cmd_scissor_box :: proc(pipeline : ^Pipeline, x, y, width, height : f32) {
+
+    x:=x;
+    y:=y;
+    width:=width;
+    height:=height;
+    if x < 0 {
+        width += x;
+        x = 0;
+    }
+    if y < 0 {
+        height += y;
+        y = 0;
+    }
+
+    if width <= 0 || height <= 0 {
+        // #Hack #Bugprone
+        x = 9999999;
+        y = 9999999;
+        width = 1;
+        height = 1;
+    }
+
+    scissor : vk.Rect2D;
+    scissor.offset = { cast(i32)x, cast(i32)y};
+    scissor.extent = { cast(u32)width, cast(u32)height };
+    vk.CmdSetScissor(pipeline.command_buffer, 0, 1, &scissor);
 }

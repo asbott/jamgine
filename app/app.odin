@@ -2,6 +2,7 @@ package app
 
 import "jamgine:gfx"
 import "jamgine:gfx/imm"
+import igui "jamgine:gfx/imm/gui"
 import "jamgine:gfx/text"
 import "jamgine:console"
 import "jamgine:input"
@@ -10,6 +11,8 @@ import "jamgine:lin"
 
 import "core:fmt"
 import "core:time"
+import "core:mem"
+import "core:os"
 
 import "vendor:glfw"
 
@@ -40,10 +43,13 @@ run :: proc() {
 
     context.logger = console.create_console_logger();
 
-    gfx.init_and_open_window("Majs");
+    gfx.init_and_open_window("Jamgine App");
 
     imm.init();
     imm.make_and_set_context();
+
+    igui.make_and_set_gui_context();
+
     console.init(imm.get_current_context());
     input.init(gfx.window);
 
@@ -60,6 +66,8 @@ run :: proc() {
     time.stopwatch_start(&elapsed_stopwatch);
     for !glfw.WindowShouldClose(gfx.window) && running {
 
+        mem.free_all(context.temp_allocator);
+
         frame_duration   = time.stopwatch_duration(frame_stopwatch);
         delta_seconds    = cast(f32)time.duration_seconds(frame_duration);
         elapsed_duration = time.stopwatch_duration(elapsed_stopwatch);
@@ -68,19 +76,22 @@ run :: proc() {
         time.stopwatch_start(&frame_stopwatch);
 
         gfx.collect_window_events();
-
         console.update(delta_seconds);
-        input.update();
-
+        igui.new_frame();
+        
         if sim_proc != nil && !sim_proc() {
             running = false;
             break;
         }
-
+        
+        
         if draw_proc != nil && !draw_proc() {
             running = false;
             break;
         }
+        
+        igui.update(delta_seconds);
+        input.update();
 
         if should_draw_stats {
             imm.set_render_target(gfx.window_surface);
@@ -90,8 +101,9 @@ run :: proc() {
             stats_string := fmt.tprintf(
 `imm Vertices: %i,
 imm Indices: %i
-Frametime: %f.
-FPS: %f `, imm_stats.num_vertices, imm_stats.num_indices, delta_seconds, 1.0/delta_seconds);
+imm Scissors: %i
+Frametime: %fms.
+FPS: %f `, imm_stats.num_vertices, imm_stats.num_indices, imm_stats.num_scissors, delta_seconds*1000, 1.0/delta_seconds);
 
             text_size := text.measure(imm.get_current_context().default_font, stats_string);
             imm.text(stats_string, { 5+1, 5-1, 0 } + lin.v3(text_size / 2.0), color=gfx.BLACK);
@@ -111,6 +123,7 @@ FPS: %f `, imm_stats.num_vertices, imm_stats.num_indices, delta_seconds, 1.0/del
     if shutdown_proc != nil do shutdown_proc();
 
     console.shutdown();
+    igui.destroy_current_context();
     imm.delete_current_context();
     imm.shutdown();
     gfx.shutdown();

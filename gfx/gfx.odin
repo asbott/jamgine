@@ -115,6 +115,12 @@ env : struct {
     max_texture_size : int,
 };
 window : glfw.WindowHandle;
+CURSOR_HRESIZE : glfw.CursorHandle;
+CURSOR_VRESIZE : glfw.CursorHandle;
+CURSOR_ARROW   : glfw.CursorHandle;
+CURSOR_IBEAM   : glfw.CursorHandle;
+CURSOR_HAND    : glfw.CursorHandle;
+CURSOR_CROSSHAIR    : glfw.CursorHandle;
 window_surface : ^jvk.Draw_Surface;
 default_context : runtime.Context;
 clear_color := lin.Vector4{0.2, 0.2, 0.3, 1.0};
@@ -133,8 +139,7 @@ set_window_event_callbacks :: proc() {
     glfw.SetFramebufferSizeCallback(window, proc "c" (window: glfw.WindowHandle, width, height: i32) {
         context = default_context;
 
-        // #Incomplete
-        /*gl.Viewport(0, 0, width, height);*/
+        //jvk.resize_draw_surface(window_surface, cast(uint)width, cast(uint)height);
 
         append(&window_events, make_window_event(Window_Resize_Event{cast(f32)width, cast(f32)height}));
     });
@@ -188,7 +193,25 @@ init_and_open_window :: proc(title : cstring = "JAMGINE GAME by CMQV", width := 
 
     set_window_event_callbacks();
 
+    CURSOR_HRESIZE = glfw.CreateStandardCursor(glfw.HRESIZE_CURSOR);
+    CURSOR_VRESIZE = glfw.CreateStandardCursor(glfw.VRESIZE_CURSOR);
+    CURSOR_ARROW = glfw.CreateStandardCursor(glfw.ARROW_CURSOR);
+    CURSOR_IBEAM = glfw.CreateStandardCursor(glfw.IBEAM_CURSOR);
+    CURSOR_HAND = glfw.CreateStandardCursor(glfw.HAND_CURSOR);
+    CURSOR_CROSSHAIR = glfw.CreateStandardCursor(glfw.CROSSHAIR_CURSOR);
+
     return true;
+}
+take_window_event :: proc($T : typeid) -> (^T) {
+    for e,i in window_events {
+        if e.handled do continue;
+        #partial switch v in e.variant {
+            case T: {
+                return &window_events[i].variant.(T);
+            }
+        }    
+    }
+    return nil;
 }
 
 

@@ -142,7 +142,7 @@ layout (location = 2) in vec2 a_UV;
 layout (location = 3) in vec3 a_Normal;
 layout (location = 4) in ivec4 a_DataIndices;
 
-layout (push_constant) uniform Camera {
+layout (binding = 1) uniform Camera {
     mat4 u_Proj;
     mat4 u_View;
     vec2 u_Viewport;

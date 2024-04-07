@@ -273,6 +273,10 @@ parse_scope :: proc(using parser : ^Glsl_Parser, until : Token_Kind) -> (result 
                 // #Incomplete
                 // Could be variable declaration after this.
             }
+            case .KW_CONST: {
+                lexer_eat(&lexer);
+                fallthrough;
+            }
             case .IDENTIFIER: {
                 next := lexer_peek(&lexer, 0);
                 next_again := lexer_peek(&lexer, 1);
@@ -316,7 +320,23 @@ parse_scope :: proc(using parser : ^Glsl_Parser, until : Token_Kind) -> (result 
                     }
 
                 } else {
+                    expect_semicolon = true;
                     parse_var_decl(parser, result) or_return;
+
+                    next := lexer_peek(&lexer);
+
+                    if next.kind == .EQUALS {
+                        // Skip until ;
+                        for true {
+                            next = lexer_peek(&lexer);
+                            if next == nil || next.kind == .EOF {
+                                return nil, make_error(next, Glsl_Parse_Error_Unexpected_Eof{token=next});
+                            }
+
+                            if next.kind == .SEMICOLON do break;
+                            lexer_eat(&lexer);
+                        }
+                    }
                 }
             }
             case: {

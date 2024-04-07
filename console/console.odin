@@ -89,8 +89,8 @@ TOGGLE_SPEED      :: 6.0;
 CLOSED_POS        :: 0.0;
 HALF_POS          :: 0.3;
 FULL_POS          :: 0.9;
-BASE_COLOR        :: lin.Vector4{ 0.0, 0.0, 0.0, 0.50 };
-PROMPT_COLOR      :: lin.Vector4{ 0.0, 0.0, 0.0, 0.8 };
+BASE_COLOR        :: lin.Vector4{ 0.0, 0.0, 0.0, 0.85 };
+PROMPT_COLOR      :: lin.Vector4{ 0.03, 0.03, 0.03, 0.9 };
 USER_ENTRY_COLOR  :: lin.Vector4{ .3, .6, .8, 1.0 };
 DEFAULT_FONT_SIZE :: 18;
 VERTICAL_PADDING  :: 0.25;
@@ -1001,8 +1001,10 @@ update :: proc(dt : f32) {
                 }
             }
             case gfx.Window_Resize_Event: {
-                rerender_all();
-                
+                rerender_all();          
+            }
+            case gfx.Window_Mouse_Move_Event: {
+                gfx.window_events[i].handled = v.ypos >= gfx.get_window_size().y-(current_pos * gfx.get_window_size().y);
             }
         }
     }

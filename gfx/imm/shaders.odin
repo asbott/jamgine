@@ -20,6 +20,7 @@ shaders : struct {
 make_shader :: proc(vert_src : string, frag_src : string) -> (program: jvk.Shader_Program, ok: bool) {
     constants := []jvk.Shader_Constant {
         {name="MAX_SAMPLERS", value=MAX_TEXTURES_PER_PIPELINE},
+        {name="MAX_SCISSORS", value=MAX_SCISSOR_BOXES_PER_PIPELINE},
     }
     return jvk.make_shader_program_from_sources(vert_src, frag_src, constants=constants);
 }
@@ -51,7 +52,7 @@ vert_src_basic2d :: `#version 450
     layout (location = 3) in vec3 a_Normal;
     layout (location = 4) in ivec4 a_DataIndices;
 
-    layout (push_constant) uniform Camera {
+    layout (binding = 1) uniform Camera {
         mat4 u_Proj;
         mat4 u_View;
         vec2 u_Viewport;
@@ -61,16 +62,20 @@ vert_src_basic2d :: `#version 450
     layout (location = 1) flat out int v_Type;
     layout (location = 2) out vec4 v_Color;
     layout (location = 3) out vec2 v_UV;
-
+    layout (location = 4) out vec2 v_WorldPos;
+    layout (location = 5) flat out int v_ScissorIndex;
+    
     void main()
     {
         gl_Position = u_Proj * u_View * vec4(a_Pos, 1.0);
 
         v_Color = a_Color;
         v_UV = a_UV;
+        v_ScissorIndex = int(a_DataIndices[0]);
         v_TextureIndex = int(a_DataIndices[1]);
         v_Type = int(a_DataIndices[2]);
 
+        v_WorldPos = a_Pos.xy;
     }
 `;
 
@@ -81,11 +86,32 @@ frag_src_basic2d :: `#version 450
     layout (location = 1) flat in int v_Type;
     layout (location = 2) in vec4 v_Color;
     layout (location = 3) in vec2 v_UV;
+    layout (location = 4) in vec2 v_WorldPos;
+    layout (location = 5) flat in int v_ScissorIndex;
 
     layout (binding = 0) uniform sampler2D samplers[MAX_SAMPLERS];
+    layout (binding = 2) uniform Scissor_Stack {
+        vec4 scissors[MAX_SCISSORS];
+    };
 
     void main()
     {
+        if (v_ScissorIndex >= 0) {
+            vec4 scissor = scissors[v_ScissorIndex];
+            float L = scissor.x - scissor.z/2.0;
+            float R = scissor.x + scissor.z/2.0;
+            float B = scissor.y - scissor.w/2.0;
+            float T = scissor.y + scissor.w/2.0;
+    
+            float x = v_WorldPos.x;
+            float y = v_WorldPos.y;
+
+            if (x < L || x >= R || y < B || y >= T) {
+                discard;
+            }
+        }
+
+
         if (v_Type == 0) { // Regular 2D 
             result = v_Color;
     
@@ -104,6 +130,21 @@ frag_src_basic2d :: `#version 450
             if (v_TextureIndex >= 0) {
                 result *= texture(samplers[v_TextureIndex], v_UV);
             }
+        } else if (v_Type == 3) { // Shadow rect
+            result = v_Color;
+    
+            if (v_TextureIndex >= 0) {
+                result *= texture(samplers[v_TextureIndex], v_UV);
+            }
+
+            float edge_dist_x = min(v_UV.x, 1.0 - v_UV.x);
+            float edge_dist_y = min(v_UV.y, 1.0 - v_UV.y);
+            float edge_dist = min(edge_dist_x, edge_dist_y);
+
+            float alpha = edge_dist / 0.1;
+
+            result.a *= alpha;
+
         } else { // Invalid type
             result = vec4(1.0, 0.0, 0.0, 1.0);
         }
@@ -120,7 +161,7 @@ vert_src_text_atlas :: `#version 450
     layout (location = 3) in vec3 a_Normal;
     layout (location = 4) in ivec4 a_DataIndices;
 
-    layout (push_constant) uniform Camera {
+    layout (binding = 1) uniform Camera {
         mat4 u_Proj;
         mat4 u_View;
         vec2 u_Viewport;
@@ -148,6 +189,9 @@ frag_src_text_atlas :: `#version 450
     layout (location = 3) in vec2 v_UV;
 
     layout (binding = 0) uniform sampler2D samplers[MAX_SAMPLERS];
+    layout (binding = 2) uniform Scissor_Stack {
+        vec4 scissors[MAX_SCISSORS];
+    };
 
     void main()
     {
