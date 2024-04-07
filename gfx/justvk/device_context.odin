@@ -33,7 +33,7 @@ Device_Context :: struct {
     null_sbo : ^Storage_Buffer,
     null_texture_rgba : Texture,
 
-    pipelines : [dynamic]^Pipeline,
+    pipelines : [dynamic]^Pipeline, // #Sync this needs to be synced if we are to delete resources & make pipelines in async
 }
 
 
