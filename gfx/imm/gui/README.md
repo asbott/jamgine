@@ -21,7 +21,7 @@ if igui.button("Unset") {
 igui.end_window();
 ``` 
 Above code results in:
-![](../../repo/simple_example.gif)
+![](/repo/simple_example.gif)
 
 ## General Showcase
-![](../../repo/immgui.gif)
+![](/repo/immgui.gif)
