@@ -302,7 +302,6 @@ draw :: proc(using ctx := active_ctx) {
         });
     }
     
-
     
     imm.begin2d();
     assert(len(imm.get_current_context().vertices) == 0);
@@ -2061,7 +2060,6 @@ update :: proc(delta_time : f32, using ctx := active_ctx) {
         }
 
         if .BUTTON in hovered.flags do state.cursor = gfx.CURSOR_HAND;
-
 
         SCROLL_SPEED :: 50;
         content_size_x := hovered.content_max.x - hovered.content_min.x;

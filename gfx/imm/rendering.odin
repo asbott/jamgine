@@ -857,7 +857,6 @@ make_context :: proc (hint_vertices := 1000) -> ^Imm_Context {
         scissor_ubos[i] = jvk.make_uniform_buffer(Scissor_Ubo, .RAM_SYNCED);
     }
 
-
     return ctx;
 }
 

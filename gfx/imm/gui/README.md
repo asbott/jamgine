@@ -32,7 +32,7 @@ Above code results in:
 - Most basic widgets to do anything
 - Extremely modular (everything is just panels with flags)
 
-![](/repo/immgui_emitters_exmaple.gif)
+![](/repo/immgui_emitters_example.gif)
 
 ## TODO LIST
 - Improve Text input widget
@@ -61,6 +61,9 @@ Above code results in:
     - Fix wobbliness (looks like widgets gets drawn one frame after parent window)
     - Make text labels cause overflow (expand content min/max).
     - Does lots of unecessary draw commands. Optimize.
+        - If we give imm_gui its own Imm context it could have a pipeline active the whole
+          frame and we wouldnt need to defer draw commands and can isntead draw directly
+          to a render target which itself is drawn to screen with draw().
     - Columns waste space on right. More noticable with many columns.
     - Column spacing overall is off
 - Render text to an atlas, clear & resize(?) when full
