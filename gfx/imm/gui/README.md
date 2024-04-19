@@ -22,7 +22,7 @@ igui.end_window();
 ``` 
 Above code results in:
 
-![](repo/simple_example.gif)
+![](/repo/simple_example.gif)
 
 ## Showcase
 ![](/repo/immgui.gif)

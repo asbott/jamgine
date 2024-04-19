@@ -97,7 +97,8 @@ Particle_Property_Vec4 :: struct {
 // This is the part that's reflected in the ssbo
 Emitter_Config :: struct {
     // 16-byte block!!
-    emission_rate : f64,
+    emission_rate : f32,
+    _ : [4]byte,
     seed : f32,
     particle_kind : Particle_Kind,
     // !!
@@ -391,8 +392,8 @@ update_emitter_config :: proc(e : ^Emitter) {
 
 simulate_emitter :: proc(e : ^Emitter) {
     assert(e.is_compiled, "Emitter must be compiled before simulation, but it wasn't.");
-    now := get_emitter_time(e);
-    state := struct {now : f64} {now};
+    now := cast(f32)get_emitter_time(e);
+    state := struct {now : f32} {now};
 
     jvk.do_compute(e.compute_context, e.compiled_max_particles, push_constant=&state);
 

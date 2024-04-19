@@ -1,7 +1,7 @@
 # Jamgine
 My personal sandbox/portfolio.
 
-I cannot offer you a fancy paper or fancy numbers in my CV, but I can offser you quality software in a jungle of terrible software getting worse by each passing day.
+I cannot offer you a fancy paper or fancy numbers in my CV, but I can offer  you quality software in a jungle of terrible software getting worse by each passing day.
 
 This project is meant to showcase the real fruits of my efforts and competence in software. 
 
@@ -21,6 +21,9 @@ Everything is written with odin lang. If you want to compile and run any of the 
 ## Points of interest
 Note: Some implementation pages contain more information and showcases.
 ### GPU Accelerated Particle emitter
+
+(GIF might take a while to load)
+
 ![](/repo/emitter_v1_smoke.gif)
 
 - Implementation: https://github.com/asbott/jamgine/tree/main/gfx/particles

@@ -332,11 +332,8 @@ do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
     
     igui.columns(3);
     igui.int_drag("Max Particles (!)", &emitter.max_particles, min=1);
-    f32_rate := cast(f32)emitter.emission_rate;
-    igui.f32_drag("Emission Rate", &f32_rate, min=0.001);
-    emitter.emission_rate = cast(f64)f32_rate;
-    seed_int := cast(int)(emitter.seed / 3000);
-    igui.f32_drag("Seed##Emitter", &emitter.seed, min=-2000, max=2000, rate=1);
+    igui.f32_drag("Emission Rate", &emitter.emission_rate, min=0.001);
+    igui.f32_drag("Seed##Emitter", &emitter.seed, rate=1);
 
     igui.columns(2);
 

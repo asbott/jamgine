@@ -60,7 +60,8 @@ struct Property_Vec4 {
     vec4 value2; // 16 bytes
 };
 struct Emitter_Config {
-    highp_float emission_rate; // 0-8
+    float emission_rate; // 0-4
+    float pad0; // 4-8
     float seed; // 8-12
     int particle_kind; // 12-16
 
@@ -95,7 +96,7 @@ layout (std140, binding = 1) buffer Emitter_Simulation_Data {
 layout (binding = 2) uniform sampler2D u_random_texture;
 
 layout(push_constant) uniform Simulation_State {
-    highp_float abs_now;
+    float now;
 };
 
 float rand(float seed) {
@@ -368,25 +369,12 @@ void main() {
     // Used highp floats here for extra precision for old random
     // function. Could potentially used regular floats without
     // the loss of precision having any effect.
-    highp_float emission_interval = highp_float(1.0) / emitter.emission_rate;
+    float emission_interval = 1.0 / emitter.emission_rate;
 
-    highp_float time_when_last_particle_is_emitted = highp_float(NUM_PARTICLES) * emission_interval;
-    /*highp_float total_emission_time = time_when_last_particle_is_emitted;
-    {
-        // #Speed
-        // This can totally be cached at compile time
-        uint last_particle_idx = NUM_PARTICLES - 1;
-        Particle last_particle = particles[last_particle_idx];
-        float last_particle_seed = emitter.seed + float(last_particle_idx);
-        float last_particle_life_time = read_property_f32(emitter.lifetime, last_particle_seed, 1.0);
-        total_emission_time += last_particle_life_time;
-    }*/
+    float time_when_last_particle_is_emitted = NUM_PARTICLES * emission_interval;
 
 
-    highp_float emission_time = highp_float(idx) * emission_interval;
-
-    // #Unused
-    highp_float now = abs_now;
+    float emission_time = float(idx) * emission_interval;
 
     float particle_seed = emitter.seed + float(idx);
 
