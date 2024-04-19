@@ -12,6 +12,7 @@ import "jamgine:gfx"
 
 shaders : struct {
     basic2d : jvk.Shader_Program,
+    basic3d : jvk.Shader_Program,
     text_atlas : jvk.Shader_Program,
 
     are_loaded  : bool,
@@ -19,7 +20,7 @@ shaders : struct {
 
 make_shader :: proc(vert_src : string, frag_src : string) -> (program: jvk.Shader_Program, ok: bool) {
     constants := []jvk.Shader_Constant {
-        {name="MAX_SAMPLERS", value=MAX_TEXTURES_PER_PIPELINE},
+        {name="MAX_SAMPLERS", value=min(MAX_TEXTURES_PER_PIPELINE, cast(int)jvk.get_target_device_context().graphics_device.props.limits.maxPerStageDescriptorSamplers)},
         {name="MAX_SCISSORS", value=MAX_SCISSOR_BOXES_PER_PIPELINE},
     }
     return jvk.make_shader_program_from_sources(vert_src, frag_src, constants=constants);
@@ -28,6 +29,7 @@ make_shader :: proc(vert_src : string, frag_src : string) -> (program: jvk.Shade
 init_shaders :: proc() {
     ok : bool;
     shaders.basic2d, ok = make_shader(vert_src_basic2d, frag_src_basic2d);
+    if ok do shaders.basic3d, ok = make_shader(vert_src_basic3d, frag_src_basic3d);
     if ok do shaders.text_atlas, ok = make_shader(vert_src_text_atlas, frag_src_text_atlas);
 
     if !ok {
@@ -42,6 +44,7 @@ destroy_shaders :: proc() {
     shaders.are_loaded = false;
 
     jvk.destroy_shader_program(shaders.basic2d);
+    jvk.destroy_shader_program(shaders.basic3d);
     jvk.destroy_shader_program(shaders.text_atlas);
 }
 
@@ -111,7 +114,6 @@ frag_src_basic2d :: `#version 450
             }
         }
 
-
         if (v_Type == 0) { // Regular 2D 
             result = v_Color;
     
@@ -120,7 +122,113 @@ frag_src_basic2d :: `#version 450
             }
         } else if (v_Type == 1) { // Text
             float text_sample = texture(samplers[v_TextureIndex], v_UV).r;
-            result = vec4(1.0, 1.0, 1.0, text_sample) * v_Color;
+            result = vec4(1.0, 1.0, 1.0, text_sample) * vec4(v_Color.xyz, 1.0);
+        } else if (v_Type == 2) { // Circle
+            float distance = length(v_UV - vec2(0.5, 0.5));
+            if (distance > 0.5 ) {
+                discard;
+            }
+            result = v_Color;
+            if (v_TextureIndex >= 0) {
+                result *= texture(samplers[v_TextureIndex], v_UV);
+            }
+        } else if (v_Type == 3) { // Shadow rect
+            result = v_Color;
+    
+            if (v_TextureIndex >= 0) {
+                result *= texture(samplers[v_TextureIndex], v_UV);
+            }
+
+            float edge_dist_x = min(v_UV.x, 1.0 - v_UV.x);
+            float edge_dist_y = min(v_UV.y, 1.0 - v_UV.y);
+            float edge_dist = min(edge_dist_x, edge_dist_y);
+
+            float alpha = edge_dist / 0.1;
+
+            result.a *= alpha;
+
+        } else { // Invalid type
+            result = vec4(1.0, 0.0, 0.0, 1.0);
+        }
+    }
+`;
+
+
+vert_src_basic3d :: `#version 450
+    layout (location = 0) in vec3 a_Pos;
+    layout (location = 1) in vec4 a_Color;
+    layout (location = 2) in vec2 a_UV;
+    layout (location = 3) in vec3 a_Normal;
+    layout (location = 4) in ivec4 a_DataIndices;
+
+    layout (binding = 1) uniform Camera {
+        mat4 u_Proj;
+        mat4 u_View;
+        vec2 u_Viewport;
+    };
+    
+    layout (location = 0) flat out int v_TextureIndex;
+    layout (location = 1) flat out int v_Type;
+    layout (location = 2) out vec4 v_Color;
+    layout (location = 3) out vec2 v_UV;
+    layout (location = 4) out vec2 v_WorldPos;
+    layout (location = 5) flat out int v_ScissorIndex;
+    
+    void main()
+    {
+        gl_Position = u_Proj * u_View * vec4(a_Pos, 1.0);
+
+        v_Color = a_Color;
+        v_UV = a_UV;
+        v_ScissorIndex = int(a_DataIndices[0]);
+        v_TextureIndex = int(a_DataIndices[1]);
+        v_Type = int(a_DataIndices[2]);
+
+        v_WorldPos = a_Pos.xy;
+    }
+`;
+
+frag_src_basic3d :: `#version 450
+    layout (location = 0) out vec4 result;
+    
+    layout (location = 0) flat in int v_TextureIndex;
+    layout (location = 1) flat in int v_Type;
+    layout (location = 2) in vec4 v_Color;
+    layout (location = 3) in vec2 v_UV;
+    layout (location = 4) in vec2 v_WorldPos;
+    layout (location = 5) flat in int v_ScissorIndex;
+
+    layout (binding = 0) uniform sampler2D samplers[MAX_SAMPLERS];
+    layout (binding = 2) uniform Scissor_Stack {
+        vec4 scissors[MAX_SCISSORS];
+    };
+
+    void main()
+    {
+        if (v_ScissorIndex >= 0) {
+            vec4 scissor = scissors[v_ScissorIndex];
+            float L = scissor.x - scissor.z/2.0;
+            float R = scissor.x + scissor.z/2.0;
+            float B = scissor.y - scissor.w/2.0;
+            float T = scissor.y + scissor.w/2.0;
+    
+            float x = v_WorldPos.x;
+            float y = v_WorldPos.y;
+
+            if (x < L || x >= R || y < B || y >= T) {
+                discard;
+            }
+        }
+
+        if (v_Type == 0) { // Regular
+            result = v_Color;
+    
+            if (v_TextureIndex >= 0) {
+                result *= texture(samplers[v_TextureIndex], v_UV);
+            }
+        } else if (v_Type == 1) { // Text
+            float text_sample = texture(samplers[v_TextureIndex], v_UV).r;
+            result = vec4(1.0, 1.0, 1.0, text_sample) * vec4(v_Color.xyz, 1.0);
         } else if (v_Type == 2) { // Circle
             float distance = length(v_UV - vec2(0.5, 0.5));
             if (distance > 0.5 ) {

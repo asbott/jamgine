@@ -1,22 +1,36 @@
-package entity_test
+package imm_gui_test
 
 import "jamgine:gfx"
+import "jamgine:input"
 import "jamgine:gfx/imm"
-import jvk "jamgine:gfx/justvk"
 import "jamgine:console"
 import "jamgine:app"
+import "jamgine:entities"
 import "jamgine:lin"
 import "jamgine:utils"
-import "jamgine:osext"
+import "jamgine:serial"
+import img "jamgine:image_loader"
+import jvk "jamgine:gfx/justvk"
+import igui "jamgine:gfx/imm/gui"
+import pfx "jamgine:gfx/particles"
 
+import "core:time"
+import "core:os"
 import "core:math"
 import "core:math/rand"
 import "core:fmt"
-import "core:os"
-import "core:time"
+import "core:strings"
+import "core:unicode"
 import "core:log"
+import "core:reflect"
+import "core:slice"
+import "core:builtin"
+import "core:math/linalg"
 
-import vk "vendor:vulkan"
+import "vendor:glfw"
+
+FOV :: 60.0;
+MIN_CLIP :: 0.1;
 
 main :: proc() {
 
@@ -24,308 +38,503 @@ main :: proc() {
     app.shutdown_proc = shutdown;
     app.sim_proc      = simulate_game;
     app.draw_proc     = draw_game;
+    app.config.enable_depth_test = true;
+    app.config.do_serialize_config = true;
 
     app.run();
 }
 
-
-
-compute_src :: `
-#version 450
-
-layout(local_size_x = MAX_COMPUTE_SIZE) in;
-
-struct Particle {
-    vec2 pos;
-    float dir_angle;
-    float birth_time;
-    vec4 color;
-    vec2 size;
-};
-
-layout(binding = 0) buffer Emitter {
-    Particle particles[NUM_PARTICLES];
-
-    vec4 start_color;
-    vec4 end_color;
-
-    vec2 size_from;
-    vec2 size_to;
-
-} emitter;
-
-layout (binding = 1) uniform Time {
-    float now;
-};
-
-float rand(float seed) {
-    return fract(sin(dot(vec2(seed, seed), vec2(12.9898,78.233))) * 43758.5453);
-}
-float rand_range(float seed, float min, float max) {
-    return min + (max-min) * rand(seed);
+Gui_Window_Binding :: struct {
+    name : string,
+    show : bool,
+    show_proc : proc(^Gui_Window_Binding),
+    ud : rawptr,
+    want_center : bool,
 }
 
-void main() {
-    uint idx = gl_GlobalInvocationID.x;
+Camera_Kind :: enum {
+    ORBIT_3D,
+    PANNING_2D,
+}
 
-    if (idx >= NUM_PARTICLES) {
-        return;
+scene : struct {
+    emitter : pfx.Emitter,
+    orbit : lin.Vector2,
+    pan : lin.Vector2,
+    cam_distance : f32,
+    camera_kind : Camera_Kind,
+    current_texture_path : string,
+    clear_color : lin.Vector4,
+    do_draw_gizmos : bool,
+    using noserialize : struct {
+        gui_windows : []Gui_Window_Binding,
     }
-
-    Particle p = emitter.particles[idx];
-
-    float life_time = mod(now - p.birth_time, 13);
-    if (life_time <= 0) {
-        return;
-    }
-
-    float life_time_factor = life_time / 13;
-    p.color = mix(emitter.start_color, emitter.end_color, life_time_factor);
-    p.size = mix(emitter.size_from, emitter.size_to, life_time_factor);
-
-    float birth_random = rand(p.birth_time);
-
-    float angle = p.dir_angle + sin(life_time * birth_random);
-
-    vec2 dir = vec2(cos(angle), sin(angle));
-
-    p.pos = dir * life_time * 50 * birth_random;
-
-    emitter.particles[idx] = p;
 }
-`;
-
-particle_vert_src :: `
-
-#version 450
-
-layout (location = 0) in int a_particle_index;
-layout (location = 1) in vec2 a_local_pos; // -1 to 1
-
-struct Particle {
-    vec2 pos;
-    float dir_angle;
-    float birth_time;
-    vec4 color;
-    vec2 size;
-};
-
-
-layout (binding = 0) uniform Camera_Transform {
-    mat4 u_proj;
-    mat4 u_view;
-    vec2 u_viewport;
-};
-layout (binding = 1) uniform Emitter_Transform {
-    mat4 u_model;
-};
-layout (binding = 2) buffer Emitter {
-    Particle s_particles[NUM_PARTICLES];
-};
-
-layout (location = 0) out vec4 v_color;
-layout (location = 1) out vec2 v_local_pos;
-
-void main() {
-
-    Particle p = s_particles[a_particle_index];
-
-    v_color = p.color;
-    v_local_pos = a_local_pos;
-
-    vec2 vert_pos = p.pos + a_local_pos * (p.size/2);
-    gl_Position = (u_proj * u_view * u_model * vec4(vert_pos.x, vert_pos.y, 0.0, 1.0));
-}
-
-`
-particle_frag_src :: `
-#version 450
-
-layout (location = 0) out vec4 o_result;
-
-layout (location = 0) in vec4 v_color;
-layout (location = 1) in vec2 v_local_pos;
-
-void main() {
-    float distance = length(v_local_pos - vec2(0.5, 0.5));
-    if (distance > 0.5 ) {
-        discard;
-    }
-    o_result = v_color;
-}
-
-`
-
-NUM_PARTICLES :: 10000000;
-
-Particle :: struct #align(16) {
-    pos : lin.Vector2,
-    dir_angle : f32,
-    birth_time : f32,
-    color : lin.Vector4,
-    size : lin.Vector2,
-}
-Emitter :: struct #align(16) {
-    particles : [NUM_PARTICLES]Particle,
-
-    start_color : lin.Vector4,
-    end_color : lin.Vector4,
-    size_from : lin.Vector2,
-    size_to : lin.Vector2,
-}
-
-Particle_Vertex :: struct {
-    particle_index : i32,
-    local_pos : lin.Vector2,
-}
-
-
-sbo : ^jvk.Storage_Buffer; // This is where the particle data will be
-time_ubo : ^jvk.Uniform_Buffer; // Used for seed/life time tracking in compute shader
-cs : jvk.Compute_Shader;
-ctx : ^jvk.Compute_Context;
-compute_sem : vk.Semaphore;
-
-// Used in compute pipeline for simulating the particles
-// and used in particles drawing pipeline to generate the
-// geometry in the vertex shader
-emitter_ubo : ^jvk.Uniform_Buffer;
-
-// Pipeline & stuff for drawing the computed particles
-particles_vbo : ^jvk.Vertex_Buffer;
-particles_ibo : ^jvk.Index_Buffer;
-camera_ubo : ^jvk.Uniform_Buffer;
-particles_program : jvk.Shader_Program;
-particles_pipeline : ^jvk.Pipeline;
-
-emitter_transform : lin.Matrix4; // #Unused
+current_particle_texture : jvk.Texture;
 
 init :: proc() -> bool {
-    
-    emitter := new(Emitter);
-    defer free(emitter);
-    emitter.start_color = {.01, .01, 1.2, 1.0};
-    emitter.end_color = {1.0, 1.0, 1.0, 0.0};
-    emitter.size_from = {1.8, 1.8};
-    emitter.size_to = {5.0, 5.0};
+    using scene;
+    emitter.max_particles = 150000;
 
-    for _, i in emitter.particles {
-        p := &emitter.particles[i];
+    clear_color = {0.1, 0.1, 0.1, 1.0};
 
-        p.birth_time = app.elapsed_seconds;
-        p.dir_angle = rand.float32_range(0, math.TAU);    
-        p.birth_time = rand.float32_range(0, 13);    
+    pfx.init_emitter_config(&emitter);
+
+    emitter.seed = rand.float32_range(-2000, 2000);
+
+    orbit = 0;
+    cam_distance = 10;
+
+    serial.bind_struct_data_to_file(&scene, "emitter_test_scene.json", .WRITE_CHANGES_TO_DISK);
+
+    pfx.compile_emitter(&emitter);
+
+    if os.exists(current_texture_path) {
+        load_particle_texture_from_path(current_texture_path);
     }
 
-    sbo = jvk.make_storage_buffer(Emitter, .VRAM_WITH_CONSTANT_STAGING_BUFFER);
-    jvk.set_buffer_data(sbo, emitter, size_of(Emitter));
-    ok : bool;
-    max_compute_size := cast(int)jvk.get_target_device_context().graphics_device.props.limits.maxComputeWorkGroupInvocations;
-    assert(max_compute_size == 1024); // #Debug #Temporary
-    cs, ok = jvk.compile_compute_shader(compute_src, {{"MAX_COMPUTE_SIZE", max_compute_size}, {"NUM_PARTICLES", NUM_PARTICLES}});
-    assert(ok, "Failed compiling compute shader");
-    ctx = jvk.make_compute_context(cs);
-    compute_sem = jvk.make_semaphore(jvk.get_target_device_context());
-
-    _float :: struct {_ : f32};
-    time_ubo = jvk.make_uniform_buffer(_float, .RAM_SYNCED);
-
-    jvk.bind_compute_storage_buffer(ctx, sbo, 0);
-    jvk.bind_compute_uniform_buffer(ctx, time_ubo, 1);
-
-    verts := make([]Particle_Vertex, NUM_PARTICLES * 4);
-    indices := make([]u32, NUM_PARTICLES * 6);
-
-
-    for i := 0; i < len(verts); i += 4 {
-        v0 := &verts[i + 0];
-        v1 := &verts[i + 1];
-        v2 := &verts[i + 2];
-        v3 := &verts[i + 3];
-
-        v0.particle_index = cast(i32)i;
-        v1.particle_index = cast(i32)i;
-        v2.particle_index = cast(i32)i;
-        v3.particle_index = cast(i32)i;
-
-        v0.local_pos = { -1, -1 };
-        v1.local_pos = { -1,  1 };
-        v2.local_pos = {  1,  1 };
-        v3.local_pos = {  1, -1 };
-
-        particle_index := (i / 4) * 6;
-        indices[particle_index + 0] = cast(u32)i + 0;
-        indices[particle_index + 1] = cast(u32)i + 1;
-        indices[particle_index + 2] = cast(u32)i + 2;
-        indices[particle_index + 3] = cast(u32)i + 0;
-        indices[particle_index + 4] = cast(u32)i + 2;
-        indices[particle_index + 5] = cast(u32)i + 3;
-    }
-
-    particles_vbo = jvk.make_vertex_buffer(verts, .VRAM_WITH_IMPROVISED_STAGING_BUFFER);
-    particles_ibo = jvk.make_index_buffer(indices, .VRAM_WITH_IMPROVISED_STAGING_BUFFER);
-    camera_ubo = jvk.make_uniform_buffer(imm.Camera, .VRAM_WITH_CONSTANT_STAGING_BUFFER);
-    emitter_ubo = jvk.make_uniform_buffer(lin.Matrix4, .VRAM_WITH_CONSTANT_STAGING_BUFFER);
-    
-
-    particles_program, ok = jvk.make_shader_program(particle_vert_src, particle_frag_src, constants={{"NUM_PARTICLES", NUM_PARTICLES}});
-    assert(ok, "Failed compiling program");
-    particles_pipeline = jvk.make_pipeline(particles_program, gfx.window_surface.render_pass);
-
-    jvk.bind_uniform_buffer(particles_pipeline, camera_ubo, 0);
-    jvk.bind_uniform_buffer(particles_pipeline, emitter_ubo, 1);
-    jvk.bind_storage_buffer(particles_pipeline, sbo, 2);
-
-    window_size := gfx.get_window_size();
-
-    emitter_transform = lin.identity(lin.Matrix4) * lin.translate({window_size.x/2, window_size.y/2, 0});
-    
-    imm.set_default_2D_camera(window_size.x, window_size.y);
-    cam := imm.get_current_context().camera;
-    cam.view = lin.inverse(cam.view);
-    jvk.set_buffer_data(camera_ubo, &cam, size_of(cam)); // This syncs with transfer queue
-    jvk.set_buffer_data(emitter_ubo, &emitter_transform, size_of(emitter_transform)); // This syncs with transfer queue
+    gui_windows = slice.clone([]Gui_Window_Binding{
+        {"Scene", true, do_scene_window, nil, false},
+        {"Emitter", true, do_emitter_window, nil, false},
+    });
 
     return true;
 }
 shutdown :: proc() -> bool {
+    using scene;
+    pfx.destroy_emitter(&emitter);
 
-    jvk.destroy_uniform_buffer(time_ubo);
-    jvk.destroy_uniform_buffer(camera_ubo);
-    jvk.destroy_uniform_buffer(emitter_ubo);
-    jvk.destroy_pipeline(particles_pipeline);
-    jvk.destroy_shader_program(particles_program);
-    jvk.destroy_index_buffer(particles_ibo);
-    jvk.destroy_vertex_buffer(particles_vbo);
-    jvk.destroy_semaphore(compute_sem, jvk.get_target_device_context());
-    jvk.destroy_compute_context(ctx);
-    jvk.destroy_compute_shader(cs);
-    jvk.destroy_storage_buffer(sbo);
+    if current_particle_texture.vk_image != 0 {
+        jvk.destroy_texture(current_particle_texture);
+    }
+
+    delete(gui_windows);
 
     return true;
 }
 
 simulate_game :: proc() -> bool {
+    using scene;
+    if emitter.is_compiled {
+        pfx.simulate_emitter(&emitter)
+    }
     
-    return true;
-}
+    mouse_delta := input.get_mouse_move();
 
-draw_game :: proc() -> bool {
-
-    // This buffer is stored in RAM so this is jsut an instant set
-    jvk.set_buffer_data(time_ubo, &app.elapsed_seconds, size_of(f32)); 
-    
-    jvk.do_compute(ctx, NUM_PARTICLES, signal_sem=compute_sem);
+    mouse_down := input.is_mouse_down(glfw.MOUSE_BUTTON_LEFT);
 
     window_size := gfx.get_window_size();
 
-    jvk.begin_draw_surface(particles_pipeline, gfx.window_surface);
+    for e in gfx.window_events {
+        if e.handled do continue;
+        #partial switch event in e.variant {
+            case gfx.Window_Scroll_Event: {
+                cam_distance -= event.yscroll * (cam_distance / 10);
+            }
+            case gfx.Window_Mouse_Move_Event: {
+                if mouse_down {
+                    switch camera_kind {
+                        case .PANNING_2D: {
+                            mouse_delta_factor := lin.Vector2{
+                                (mouse_delta.x / window_size.x), 
+                                (mouse_delta.y / window_size.y)
+                            };
 
-        jvk.cmd_clear(particles_pipeline, clear_color={.05, .05, .1, 1.0});
+                            fov :f32= FOV * math.RAD_PER_DEG;
+                            aspect := window_size.x / window_size.y;
+                            plane_height := 2.0 * MIN_CLIP * math.tan_f32(fov / 2);
+                            plane_width := plane_height * aspect;
 
-        jvk.cmd_draw_indexed(particles_pipeline, particles_vbo, particles_ibo);
+                            fmt.println(mouse_delta_factor);
+                            fmt.println(plane_width, plane_height);
 
-    jvk.end_draw(particles_pipeline, wait_sem=compute_sem); // This syncs with graphics queue
+                            pan -= lin.Vector2{plane_width * mouse_delta_factor.x, plane_height * mouse_delta_factor.y} * 100 * math.pow_f32(cam_distance, 1.5);
+                        }
+                        case .ORBIT_3D: {
+                            orbit.x += mouse_delta.x * 0.01;
+                            orbit.y += (mouse_delta.y * 0.01) * (window_size.y / window_size.x);
+                        }
+                    }
+                }
+            }
+            case gfx.Window_Key_Event: {
+                if event.action == glfw.PRESS && (event.mods & glfw.MOD_CONTROL) != 0{
+                    switch event.key {
+                        case glfw.KEY_G: {
+                            app.config.enable_imm_gui = !app.config.enable_imm_gui;
+                        }
+                        case glfw.KEY_1: {
+                            camera_kind = .ORBIT_3D;
+                        }
+                        case glfw.KEY_2: {
+                            camera_kind = .PANNING_2D;
+                        }
+                        case glfw.KEY_O: {
+                            do_draw_gizmos = !do_draw_gizmos;
+                        }
+                        case glfw.KEY_R: {
+                            pan = {0, 0};
+                            orbit = {0, 0};
+                            cam_distance = 10;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return true;
+}
+
+
+
+draw_game :: proc() -> bool {
+    using scene;
+    window_size := gfx.get_window_size();
+    
+    switch camera_kind {
+        case .ORBIT_3D: {
+            imm.set_projection_perspective(math.RAD_PER_DEG * FOV, window_size.x / window_size.y, MIN_CLIP, 1000.0);
+            yaw := orbit.x;
+            pitch := -orbit.y;
+            center := lin.Vector3{0, 0, 0};
+            cam_pos := center + lin.Vector3{
+                cam_distance * math.sin(yaw) * math.cos(pitch), // X
+                cam_distance * math.sin(pitch),                // Y (in Vulkan, negative Y is up)
+                cam_distance * math.cos(yaw) * math.cos(pitch) // Z
+            };
+            imm.set_view_look_at(cam_pos, center, {0, -1, 0});
+        }
+        case .PANNING_2D: {
+            aspect := window_size.x / window_size.y;
+            height :f32= cam_distance;
+            width := aspect * height;
+            imm.set_default_2D_camera(width, height);
+            imm.get_current_context().camera.view = lin.translate({-width/2 + pan.x / width, -height/2 + pan.y / height, 1});
+        }
+    }
+
+    imm.set_render_target(gfx.window_surface);
+    imm.begin3d();
+    imm.clear_target(clear_color);
+    imm.push_translation({2, 2, 0});
+    imm.push_rotation_y(app.elapsed_seconds * 2);
+    imm.rectangle({}, {1, 1}, color=gfx.GREEN if do_draw_gizmos else gfx.TRANSPARENT);
+    imm.pop_transforms(2);
+    imm.rectangle({-1000, -1000, -1000}, {1, 1}, color=gfx.TRANSPARENT);
+    imm.flush();
+
+    if emitter.is_compiled {
+        cam := imm.get_current_context().camera;
+        proj := cam.proj;
+        view := cam.view;
+        view_inv := lin.inverse(view);
+        pfx.draw_emitter(&emitter, proj, view_inv);
+    }
+
+    for window,i in gui_windows {
+        if window.show {
+            igui.begin_window(fmt.tprint(window.name, "##Window"), open_ptr=&gui_windows[i].show);
+            if window.want_center {
+                igui.set_widget_pos(window_size.x/2, window_size.y/2);
+                gui_windows[i].want_center = false;
+            }
+            window.show_proc(&gui_windows[i]);
+            igui.end_window();
+        }
+    }
+
+    @(thread_local)
+    minimized : bool;
+    igui.begin_window("Windows", flags={.WINDOW, .ALLOW_HSCROLL, .ALLOW_VSCROLL, .ALLOW_OVERFLOW});
+
+    width :f32= 200;
+    if minimized {
+        width =50;
+    }
+    igui.set_widget_size(width, window_size.y);
+    igui.set_widget_pos(window_size.x - width / 2, window_size.y / 2);
+
+    if igui.button("+" if minimized else "-") {
+        minimized = !minimized;
+    }
+
+    if !minimized {
+        if igui.button("Open All") {
+            for _,i in gui_windows {
+                gui_windows[i].show = true;
+            }
+        }
+        if igui.button("Close All") {
+            for _,i in gui_windows {
+                gui_windows[i].show = false;
+            }
+        }
+        if igui.button("Center All") {
+            for _,i in gui_windows {
+                gui_windows[i].want_center = true;
+            }
+        }
+        igui.separator();
+        for _,i in gui_windows {
+            window := &gui_windows[i];
+            igui.label(window.name);
+            igui.columns(2);
+            if igui.button(fmt.tprint("Open##", window.name)) {
+                window.show = true;
+            }
+            if igui.button(fmt.tprint("Close##", window.name)) {
+                window.show = false;
+            }
+            igui.columns(1);
+            if igui.button(fmt.tprint("Center##", window.name)) {
+                window.want_center = true;
+            }
+            igui.separator();
+        }
+    }
+
+    igui.end_window();
 
     return true;
 }
+
+do_scene_window :: proc(wnd : ^Gui_Window_Binding) {
+    using scene;
+    enum_selection("Camera", &camera_kind);
+    igui.label(fmt.tprintf("Orbit: %.2v, Distance: %.2f", orbit, cam_distance));
+
+    igui.f32vec3_drag("Background Color", cast(^lin.Vector3)&clear_color, rate=0.01);
+
+    igui.checkbox("Draw Gizmos", &do_draw_gizmos);
+}
+
+do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
+    using scene;
+    config_before := emitter.config;
+
+    igui.columns(3);
+    if igui.button("Compile") {
+        pfx.compile_emitter(&emitter);
+    }
+    if igui.button("Start" if emitter.state != .RUNNING else "Stop") {
+        if emitter.state == .RUNNING do pfx.pause_emitter(&emitter);
+        else do pfx.start_emitter(&emitter);
+    }
+    if igui.button("Reset") {
+        pfx.reset_emitter(&emitter);
+    }
+
+    igui.columns(2);
+    now := pfx.get_emitter_time(&emitter);
+    igui.label(fmt.tprintf("Time: %.4f", now));
+    igui.label(fmt.tprint("State:", emitter.state));
+    
+    igui.columns(3);
+    igui.int_drag("Max Particles (!)", &emitter.max_particles, min=1);
+    f32_rate := cast(f32)emitter.emission_rate;
+    igui.f32_drag("Emission Rate", &f32_rate, min=0.001);
+    emitter.emission_rate = cast(f64)f32_rate;
+    seed_int := cast(int)(emitter.seed / 3000);
+    igui.f32_drag("Seed##Emitter", &emitter.seed, min=-2000, max=2000, rate=1);
+
+    igui.columns(2);
+
+    igui.checkbox("Depth Testing (!)", &emitter.enable_depth_test);
+    igui.checkbox("Depth Writing (!)", &emitter.enable_depth_write);
+    igui.checkbox("2D Mode", &emitter.should_only_2D);
+    igui.checkbox("Loop", &emitter.should_loop);
+
+    igui.columns(1);
+
+    enum_selection("Particle Kind", &emitter.config.particle_kind);
+    if emitter.particle_kind == .TEXTURE {
+        igui.columns(2);
+        @(thread_local)
+        texture_path : string;
+
+        igui.text_field("Texture Path", &texture_path, placeholder="path/to/texture.png");
+
+        if igui.button("Load") {
+            load_particle_texture_from_path(texture_path);
+        }
+
+        igui.columns(1);
+    }
+    igui.separator();
+    f32_property("Lifetime", &emitter.lifetime, min=0.001);
+    igui.separator();
+    vec4_property("Color", &emitter.color);
+    igui.separator();
+    vec3_property("Velocity", &emitter.velocity);
+    igui.separator();
+    vec3_property("Acceleration", &emitter.acceleration);
+    igui.separator();
+    vec2_property("Angular Velocity (Local Yaw Pitch)", &emitter.angular_velocity);
+    igui.separator();
+    vec2_property("Angular Acceleration (Local Yaw Pitch)", &emitter.angular_acceleration);
+    igui.separator();
+    vec3_property("Rotation (Z-only for billboards)", &emitter.rotation);
+    igui.separator();
+    vec3_property("size", &emitter.size, min=0.0001);
+    igui.separator();
+    vec3_property("position", &emitter.position);
+
+    if emitter.is_compiled && config_before != emitter.config {
+        pfx.update_emitter_config(&emitter);
+        serial.update_synced_data();
+    }
+}
+
+load_particle_texture_from_path :: proc(texture_path : string) {
+    using scene;
+    if !os.exists(texture_path) {
+        log.error("Texture file not found: ", texture_path);
+        return;
+    }
+    data, w, h, c, ok := img.decode_image_file_to_argb_bytes(texture_path, desired_channels=4);
+    if ok {
+        defer img.delete_image_argb(data);
+
+        if current_particle_texture.vk_image != 0 {
+            jvk.destroy_texture(current_particle_texture);
+        }
+
+        current_particle_texture = jvk.make_texture(w, h, builtin.raw_data(data), .SRGBA);
+        current_texture_path = texture_path;
+
+        pfx.set_particle_texture(&emitter, current_particle_texture);
+    } else {
+        log.error("Couldn't load texture at ", texture_path);
+    }
+}
+
+f32_property :: proc(name : string, prop : ^pfx.Particle_Property_F32, min : Maybe(f32) = nil, max : Maybe(f32) = nil) {
+    
+    
+    igui.label(name);
+    enum_selection(fmt.tprintf("Property type##%s", name), &prop.kind);
+    switch prop.kind {
+        case .CONSTANT: {
+            igui.f32_drag(fmt.tprint("Constant Value##", name), &prop.value1, min=min, max=max, rate=0.05);
+        }
+        case .RANDOM: {
+            enum_selection(fmt.tprintf("Distribution##%s", name), &prop.distribution);
+            igui.columns(2);
+            igui.f32_drag(fmt.tprint("Seed##", name), &prop.seed, rate=1);
+            if igui.button(fmt.tprint("Randomize##", name)) do prop.seed = pfx.rand_seed();
+            igui.columns(1);
+            igui.checkbox("Soft-lock range", &prop.soft_lock_rand_range);
+            igui.columns(2);
+            igui.f32_drag(fmt.tprint("min##", name), &prop.value1, min=min, max=max, rate=0.05);
+            igui.f32_drag(fmt.tprint("max##", name), &prop.value2, min=min, max=max, rate=0.05);
+            igui.columns(1);
+        }
+        case .INTERPOLATE: {
+            enum_selection(fmt.tprintf("Interpolation Curve##%s", name), &prop.interp_kind);
+            igui.columns(2);
+            igui.f32_drag(fmt.tprint("from##", name), &prop.value1, min=min, max=max, rate=0.05);
+            igui.f32_drag(fmt.tprint("to##", name), &prop.value2, min=min, max=max, rate=0.05);
+            igui.columns(1);
+        }
+    }
+
+}
+vec2_property :: proc(name : string, prop : ^pfx.Particle_Property_Vec2, min : Maybe(f32) = nil, max : Maybe(f32) = nil) {
+    
+    igui.label(name);
+    enum_selection(fmt.tprintf("Property type##%s", name), &prop.kind);
+    switch prop.kind {
+        case .CONSTANT: {
+            igui.f32vec2_drag(fmt.tprint("Constant Value##", name), &prop.value1, rate=0.05);
+        }
+        case .RANDOM: {
+            enum_selection(fmt.tprintf("Distribution##%s", name), &prop.distribution);
+            enum_selection(fmt.tprintf("Rand Per##%s", name), &prop.scalar_or_component_rand);
+            igui.columns(2);
+            igui.f32_drag(fmt.tprint("Seed##", name), &prop.seed, rate=1);
+            if igui.button(fmt.tprint("Randomize##", name)) do prop.seed = pfx.rand_seed();
+            igui.columns(1);
+            igui.checkbox("Soft-lock range", &prop.soft_lock_rand_range);
+            igui.columns(2);
+            igui.f32vec2_drag(fmt.tprint("min##", name), &prop.value1, rate=0.05);
+            igui.f32vec2_drag(fmt.tprint("max##", name), &prop.value2, rate=0.05);
+            igui.columns(1);
+        }
+        case .INTERPOLATE: {
+            enum_selection(fmt.tprintf("Interpolation Curve##%s", name), &prop.interp_kind);
+            igui.columns(2);
+            igui.f32vec2_drag(fmt.tprint("from##", name), &prop.value1, rate=0.05);
+            igui.f32vec2_drag(fmt.tprint("to##", name), &prop.value2, rate=0.05);
+            igui.columns(1);
+        }
+    }
+}
+vec3_property :: proc(name : string, prop : ^pfx.Particle_Property_Vec3, min : Maybe(f32) = nil, max : Maybe(f32) = nil) {
+    
+    igui.label(name);
+    enum_selection(fmt.tprintf("Property type##%s", name), &prop.kind);
+    switch prop.kind {
+        case .CONSTANT: {
+            igui.f32vec3_drag(fmt.tprint("Constant Value##", name), &prop.value1, rate=0.05);
+        }
+        case .RANDOM: {
+            enum_selection(fmt.tprintf("Distribution##%s", name), &prop.distribution);
+            enum_selection(fmt.tprintf("Rand Per##%s", name), &prop.scalar_or_component_rand);
+            igui.columns(2);
+            igui.f32_drag(fmt.tprint("Seed##", name), &prop.seed, rate=1);
+            if igui.button(fmt.tprint("Randomize##", name)) do prop.seed = pfx.rand_seed();
+            igui.columns(1);
+            igui.checkbox("Soft-lock range", &prop.soft_lock_rand_range);
+            igui.f32vec3_drag(fmt.tprint("min##", name), &prop.value1, rate=0.05);
+            igui.f32vec3_drag(fmt.tprint("max##", name), &prop.value2, rate=0.05);
+        }
+        case .INTERPOLATE: {
+            enum_selection(fmt.tprintf("Interpolation Curve##%s", name), &prop.interp_kind);
+            igui.f32vec3_drag(fmt.tprint("from##", name), &prop.value1, rate=0.05);
+            igui.f32vec3_drag(fmt.tprint("to##", name), &prop.value2, rate=0.05);
+        }
+    }
+}
+vec4_property :: proc(name : string, prop : ^pfx.Particle_Property_Vec4, min : Maybe(f32) = nil, max : Maybe(f32) = nil) {
+    
+    igui.label(name);
+    enum_selection(fmt.tprintf("Property type##%s", name), &prop.kind);
+    switch prop.kind {
+        case .CONSTANT: {
+            igui.f32vec4_drag(fmt.tprint("Constant Value##", name), &prop.value1, rate=0.05);
+        }
+        case .RANDOM: {
+            enum_selection(fmt.tprintf("Distribution##%s", name), &prop.distribution);
+            enum_selection(fmt.tprintf("Rand Per##%s", name), &prop.scalar_or_component_rand);
+            igui.columns(2);
+            igui.f32_drag(fmt.tprint("Seed##", name), &prop.seed, rate=1);
+            if igui.button(fmt.tprint("Randomize##", name)) do prop.seed = pfx.rand_seed();
+            igui.columns(1);
+            igui.checkbox("Soft-lock range", &prop.soft_lock_rand_range);
+            igui.f32vec4_drag(fmt.tprint("min##", name), &prop.value1, rate=0.05);
+            igui.f32vec4_drag(fmt.tprint("max##", name), &prop.value2, rate=0.05);
+        }
+        case .INTERPOLATE: {
+            enum_selection(fmt.tprintf("Interpolation Curve##%s", name), &prop.interp_kind);
+            igui.f32vec4_drag(fmt.tprint("from##", name), &prop.value1, rate=0.05);
+            igui.f32vec4_drag(fmt.tprint("to##", name), &prop.value2, rate=0.05);
+        }
+    }
+}
+
+enum_selection :: proc(name : string, value : ^$T) {
+    igui.columns(2);
+    igui.label(name);
+    igui.label(fmt.tprint(":", value^, "##", name));
+    igui.columns(min(len(T), 4));
+    for field_name,i in reflect.enum_field_names(T) {
+        field_value := reflect.enum_field_values(T)[i];
+        if igui.button(fmt.tprintf("%s##%s", field_name, name)) {
+            value^ = cast(T)field_value;
+        }
+    }
+    igui.columns(1);
+}
+
+

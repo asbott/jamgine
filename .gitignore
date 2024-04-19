@@ -10,3 +10,8 @@ ols.json
 *.sln
 
 *.obj
+
+*.raddbgi
+
+*config.json
+

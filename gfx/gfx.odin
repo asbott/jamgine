@@ -125,9 +125,16 @@ window_surface : ^jvk.Draw_Surface;
 default_context : runtime.Context;
 clear_color := lin.Vector4{0.2, 0.2, 0.3, 1.0};
  
+// Potentially slow. If #Speed is a concern, prefer polling window events
+// for latest framebuffer size instead.
 get_window_size :: proc() -> lin.Vector2 {
-    window_width, window_height := glfw.GetWindowSize(window);
-    return { cast(f32)window_width, cast(f32)window_height };
+    width, height := glfw.GetFramebufferSize(window);
+    for (width == 0 || height == 0) {
+        width, height = glfw.GetFramebufferSize(window);
+        fmt.println("Hey");
+        glfw.WaitEvents();
+    };
+    return { cast(f32)width, cast(f32)height };
 }
 get_current_mouse_pos :: proc() -> lin.Vector2 {
     x, y := glfw.GetCursorPos(window);
@@ -171,7 +178,7 @@ set_window_event_callbacks :: proc() {
     });
 }
 
-init_and_open_window :: proc(title : cstring = "JAMGINE GAME by CMQV", width := 1280, height := 720) -> bool {
+init_and_open_window :: proc(title : cstring = "JAMGINE GAME by CMQV", width := 1280, height := 720, enable_depth_test := false) -> bool {
 
     
     if glfw.Init() != true {
@@ -183,9 +190,12 @@ init_and_open_window :: proc(title : cstring = "JAMGINE GAME by CMQV", width := 
     window = glfw.CreateWindow(cast(i32)width, cast(i32)height, title, nil, nil);
     jvk_init_result := jvk.init();
     assert(jvk_init_result, "Failed initializing jvk");
+    //devices : []jvk.Graphics_Device={{}, {}}; // #Temporary #Debug
+    //jvk.get_all_graphics_devices(&devices);
+    //device_context := jvk.make_device_context(devices[1]);
     device_context := jvk.make_device_context();
     jvk.set_target_device_context(device_context);
-    window_surface = jvk.make_draw_surface(window);
+    window_surface = jvk.make_draw_surface(window, enable_depth_test=enable_depth_test);
     
     env.max_texture_size = cast(int)device_context.graphics_device.props.limits.maxImageDimension2D;
 

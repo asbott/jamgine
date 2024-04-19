@@ -1,7 +1,6 @@
 package imm
 
 import jvk "jamgine:gfx/justvk"
-import "jamgine:glsl_inspect"
 import "vendor:glfw"
 import "core:log"
 import "../../gfx"
@@ -20,10 +19,11 @@ import "jamgine:lin"
 
 import vk "vendor:vulkan"
 
-// In vulkan this is a lot higher (on my device ~1000000), but that is simply
-// too much and will use way to much VRAM in a single shader just to store the
-// samplers that could potentially be used.
+// The maxPerStageDescriptorSamplers may be a lot higher (~1000000 on my device) but
+// it can also be a lot lower (64 on my integrated graphics). So the actual max per
+// pipelines will be the lowest of this or the maxPerStageDescriptorSamplers.
 MAX_TEXTURES_PER_PIPELINE :: 128
+
 MAX_SCISSOR_BOXES_PER_PIPELINE :: 256
 
 DEFAULT_FONT_SIZE :: 16;
@@ -95,6 +95,8 @@ Imm_Context :: struct {
 
     pipeline_2d           : ^jvk.Pipeline,
     pipeline_2d_offscreen : ^jvk.Pipeline,
+    pipeline_3d           : ^jvk.Pipeline,
+    pipeline_3d_offscreen : ^jvk.Pipeline,
 
     text_atlas_pipeline   : ^jvk.Pipeline,
     text_atlas_pass       : jvk.Render_Pass,
@@ -123,6 +125,8 @@ Imm_Context :: struct {
     default_font : ^gfxtext.Font_Variation,
 
     current_scissor_index : int,
+
+    max_textures_per_pipeline : int,
 }
 
 
@@ -314,10 +318,21 @@ set_render_target :: proc{
 set_projection_ortho :: proc(L, R, B, T : f32, near :f32= 0.1, far :f32= 10, using ctx := imm_context) {
     camera.proj = lin.ortho(L,R,B,T,near,far);
 }
+set_projection_perspective :: proc(fov, aspect, near, far : f32, using ctx := imm_context) {
+    camera.proj = lin.perspective(fov, aspect, near, far);
+}
 
 set_default_2D_camera :: proc(width, height : f32, using ctx := imm_context) {
     set_projection_ortho(0, width, 0, height);
     camera.view = lin.identity(lin.Matrix4) * lin.translate({0, 0, 1});
+}
+set_default_3D_camera :: proc(width, height : f32, using ctx := imm_context) {
+    set_projection_perspective(60, width/height, 0.1, 100);
+    camera.view = lin.identity(lin.Matrix4) * lin.translate({0, 0, 2});
+}
+
+set_view_look_at :: proc(eye, center, up : lin.Vector3, using ctx := imm_context) {
+    camera.view = lin.inverse(lin.look_at(eye, center, up));
 }
 
 push_transform :: proc(transform : lin.Matrix4, using ctx := imm_context) {
@@ -375,7 +390,7 @@ bind_texture_and_flush_if_needed :: proc(using ctx : ^Imm_Context, texture : jvk
 
     texture_index = -1;
 
-    if cast(u32)next_texture_slot >= MAX_TEXTURES_PER_PIPELINE {
+    if cast(int)next_texture_slot >= max_textures_per_pipeline {
         _internal_flush(ctx);
         _rebegin(ctx);
     }
@@ -404,7 +419,10 @@ clear_target :: proc(color : lin.Vector4, using ctx := imm_context) {
         jvk.begin_draw_surface(active_pipeline, gfx.window_surface);
     }
 
-    jvk.cmd_clear(active_pipeline, clear_color=color);
+    if active_pipeline.current_target.depth_image != 0 {
+        jvk.cmd_clear(active_pipeline, clear_color={0, 0, 0, 1.0}, clear_mask={.DEPTH});
+    }
+    jvk.cmd_clear(active_pipeline, clear_color=color, clear_mask={.COLOR});
     jvk.end_draw(active_pipeline);
 }
 
@@ -663,6 +681,13 @@ begin2d :: proc(using ctx := imm_context) {
         begin(pipeline_2d, ctx);
     }
 }
+begin3d :: proc(using ctx := imm_context) {
+    if active_target != nil {
+        begin(pipeline_3d_offscreen, ctx);
+    } else {
+        begin(pipeline_3d, ctx);
+    }
+}
 _rebegin :: proc(using ctx := imm_context) {
     clear(&vertices);
     clear(&indices);
@@ -783,26 +808,30 @@ reserve_vertices :: proc(using ctx : ^Imm_Context, num_vertices : int) {;
 
     reserve(&vertices, num_vertices);
     reserve(&indices, num_indices);
-
+    
     allocate_gpu_buffers(ctx, num_vertices);
 }
 
 make_context :: proc (hint_vertices := 1000) -> ^Imm_Context {
-
+    
     using ctx := new(Imm_Context);
 
+    ctx.max_textures_per_pipeline = min(MAX_TEXTURES_PER_PIPELINE, cast(int)jvk.get_target_device_context().graphics_device.props.limits.maxPerStageDescriptorSamplers);
+    
     ok := false;
     default_font_family, ok = gfxtext.open_font_family(cast([^]byte)builtin.raw_data(data.BINARY_DATA_FONT_METROPOLIS), len(data.BINARY_DATA_FONT_METROPOLIS));
     assert(ok, "Failed loading default font");
     default_font = gfxtext.make_font_variation(default_font_family, DEFAULT_FONT_SIZE);
 
     pipeline_2d = jvk.make_pipeline(shaders.basic2d, gfx.window_surface.render_pass);
+    pipeline_3d = jvk.make_pipeline(shaders.basic3d, gfx.window_surface.render_pass, enable_depth_test=true);
 
     // #Limitation #Incomplete
     // This limits us to only being able to render to render targets with f32 argb 4-channel textures.
     // Could make pipelines for each format we want to support but it feels like this
     // needs a more elegant solution.
     pipeline_2d_offscreen = jvk.make_pipeline(shaders.basic2d, gfx.window_surface.dc.default_offscreen_color_render_pass_srgb_f32);
+    pipeline_3d_offscreen = jvk.make_pipeline(shaders.basic3d, gfx.window_surface.dc.default_offscreen_color_render_pass_srgb_f32, enable_depth_test=true);
 
     text_atlas_pass = jvk.make_render_pass(.R8_UNORM, .SHADER_READ_ONLY_OPTIMAL, .COLOR_ATTACHMENT_OPTIMAL);
     text_atlas_pipeline = jvk.make_pipeline(shaders.text_atlas, text_atlas_pass);
@@ -813,7 +842,7 @@ make_context :: proc (hint_vertices := 1000) -> ^Imm_Context {
     transform_stack = make([dynamic]lin.Matrix4);
     scissor_boxes = make([dynamic]lin.Vector4);
     front_transform = lin.identity(lin.Matrix4);
-    texture_slots = make_dynamic_array_len([dynamic]jvk.Texture, MAX_TEXTURES_PER_PIPELINE);
+    texture_slots = make_dynamic_array_len([dynamic]jvk.Texture, max_textures_per_pipeline);
     reserve_vertices(ctx, hint_vertices);
 
     camera_ubos = make([]^jvk.Uniform_Buffer, gfx.window_surface.number_of_frames);
@@ -827,6 +856,7 @@ make_context :: proc (hint_vertices := 1000) -> ^Imm_Context {
         };
         scissor_ubos[i] = jvk.make_uniform_buffer(Scissor_Ubo, .RAM_SYNCED);
     }
+
 
     return ctx;
 }
@@ -860,6 +890,8 @@ delete_context :: proc(using ctx : ^Imm_Context) {
 
     jvk.destroy_pipeline(pipeline_2d);
     jvk.destroy_pipeline(pipeline_2d_offscreen);
+    jvk.destroy_pipeline(pipeline_3d);
+    jvk.destroy_pipeline(pipeline_3d_offscreen);
     jvk.destroy_pipeline(text_atlas_pipeline);
 
     delete(vertices);

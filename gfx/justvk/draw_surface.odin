@@ -29,14 +29,16 @@ Draw_Surface :: struct {
 
     is_first_frame_ever : bool,
     nothing_done_this_frame : bool,
+
+    depth_test_enabled : bool,
 }
 
-make_draw_surface :: proc(window : glfw.WindowHandle, using dc := target_dc) -> ^Draw_Surface {
+make_draw_surface :: proc(window : glfw.WindowHandle, enable_depth_test := false, using dc := target_dc) -> ^Draw_Surface {
     
     surface := new(Draw_Surface);
     surface.dc = dc;
     surface.target_window = window;
-    
+    surface.depth_test_enabled = enable_depth_test;
     
     if glfw.CreateWindowSurface(vk_instance, window, nil, &surface.vk_surface) != .SUCCESS {
         panic("Failed creating window surface"); // TODO: return error
@@ -63,7 +65,7 @@ make_draw_surface :: proc(window : glfw.WindowHandle, using dc := target_dc) -> 
 
     width, height := glfw.GetWindowSize(window);
 
-    resize_draw_surface(surface, cast(uint)width, cast(uint)height);
+    resize_draw_surface(surface, cast(uint)width, cast(uint)height, enable_depth_test);
     
     surface.is_first_frame_ever = true;
     surface.nothing_done_this_frame = true;
@@ -91,7 +93,7 @@ destroy_draw_surface :: proc(surface : ^Draw_Surface) {
     delete(surface.frame_ready_semaphores);
     free(surface);
 }
-resize_draw_surface :: proc(surface : ^Draw_Surface, width : uint, height : uint) {
+resize_draw_surface :: proc(surface : ^Draw_Surface, width : uint, height : uint, enable_depth_test : bool) {
     using surface.dc;
 
     vk.DeviceWaitIdle(vk_device);
@@ -163,15 +165,15 @@ resize_draw_surface :: proc(surface : ^Draw_Surface, width : uint, height : uint
     }
     
     for img, i in swap_chain_images {
-        surface.targets[i] = make_render_target(cast(int)width, cast(int)height, {img}, surface.format, .PRESENT_SRC_KHR, .COLOR_ATTACHMENT_OPTIMAL);
-        transition_image_layout(img, surface.format, .UNDEFINED, .PRESENT_SRC_KHR, dc=surface.dc);
+        surface.targets[i] = make_render_target(cast(int)width, cast(int)height, {img}, surface.format, .PRESENT_SRC_KHR, .COLOR_ATTACHMENT_OPTIMAL, use_depth_attachment=enable_depth_test, dc=surface.dc);
+        transition_image_layout(img, surface.format, .UNDEFINED, .PRESENT_SRC_KHR, {.COLOR}, dc=surface.dc);
     }
 
     surface.render_pass = surface.targets[0].render_pass;
 
 
 
-    log.infof("Created a swap chain with extent '%i, %i'", width, height);
+    log.infof("Created a swap chain with extent '%i, %i' and %i images", width, height, len(swap_chain_images));
 }
 
 
@@ -214,7 +216,7 @@ choose_swap_extent :: proc(capabilities : vk.SurfaceCapabilitiesKHR, target_wind
 }
 
 
-begin_draw_surface :: proc(pipeline : ^Pipeline, surface : ^Draw_Surface) {
+begin_draw_surface :: proc(pipeline : ^Pipeline, surface : ^Draw_Surface, write_depth := true, test_depth := true) {
     using pipeline.dc;
 
     if surface.is_first_frame_ever {
@@ -228,7 +230,7 @@ begin_draw_surface :: proc(pipeline : ^Pipeline, surface : ^Draw_Surface) {
         append(&pipeline.wait_semaphores, sem);
     }
     
-    begin_draw(pipeline, surface.targets[surface.frame_index]);
+    begin_draw(pipeline, surface.targets[surface.frame_index], write_depth=write_depth, test_depth=test_depth);
 
     surface.nothing_done_this_frame = false;
 }
@@ -257,8 +259,13 @@ retrieve_next_target_in_surface :: proc(surface : ^Draw_Surface) {
     sem := surface.frame_ready_semaphores[surface.frame_ready_semaphore_index];
     result := vk.AcquireNextImageKHR(vk_device, surface.vk_swap_chain, c.UINT64_MAX, sem, 0, cast(^u32)&surface.frame_index);
     if result == .ERROR_OUT_OF_DATE_KHR || result == .SUBOPTIMAL_KHR {
-        width, height := glfw.GetWindowSize(surface.target_window);
-        resize_draw_surface(surface, cast(uint)width, cast(uint)height);
+        vk.DeviceWaitIdle(vk_device);
+        width, height := glfw.GetFramebufferSize(surface.target_window);
+        for (width == 0 || height == 0) {
+            width, height = glfw.GetFramebufferSize(surface.target_window);
+            glfw.WaitEvents();
+        };
+        resize_draw_surface(surface, cast(uint)width, cast(uint)height, surface.depth_test_enabled);
         retrieve_next_target_in_surface(surface);
         return;
     } else if result != .SUCCESS {

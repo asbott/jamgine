@@ -82,6 +82,10 @@ Console_State_Info :: struct #packed {
         history_target : jvk.Render_Target,
         history_pipeline : ^jvk.Pipeline,
         history_needs_render : bool,
+        font_family       : ^text.Font_Family,
+        font              : ^text.Font_Variation, // Expected to be owned by console, will be deleted on resize etc
+        commands     : map[string]Command,
+        did_console_create_font_family : bool,
     }
 }
 
@@ -96,12 +100,8 @@ DEFAULT_FONT_SIZE :: 18;
 VERTICAL_PADDING  :: 0.25;
 LEFT_PADDING      :: 1.0;
 
-font_family       : ^text.Font_Family;
-did_console_create_font_family : bool;
-font              : ^text.Font_Variation; // Expected to be owned by console, will be deleted on resize etc
-imm_context       : ^imm.Imm_Context;
 
-state             : Console_State_Info;
+imm_context       : ^imm.Imm_Context;
 current_pos       : f32;
 prompt_line       : strings.Builder;
 caret_pos         : uint;
@@ -114,9 +114,7 @@ caret_target_w    : f32;
 yscroll           : f32;
 smoothwatch       : time.Stopwatch;
 muted             := false;
-
-commands     : map[string]Command
-
+state             : Console_State_Info;
 
 
 toggle_key : c.int = glfw.KEY_F1;
@@ -364,7 +362,7 @@ bind_command :: proc(command_name : string, the_proc : $P, help := "") where int
     };
 
 
-    commands[command_name] = command;
+    state.commands[command_name] = command;
 }
 
 bind_enum :: proc($T : typeid) where intrinsics.type_is_enum(T) {
@@ -588,18 +586,17 @@ push_entry :: proc(content : string, level := log.Level.Info, is_user := false) 
 
     e : Entry;
     e.content = strings.clone(fmt.tprint(">", content) if is_user else content); // #Cleanup #Leak
-    e.size = text.measure(font, e.content);
+    e.size = text.measure(state.font, e.content);
     e.is_user = is_user;
     e.level = level;
     e.dirty = true;
 
     append(&state.entries, e);
 
-    if len(state.entries) > max_entries {
-        for i in 0..<len(state.entries)-max_entries {
-            free_entry(state.entries[i]);
-        }
-        remove_range(&state.entries, 0, len(state.entries) - max_entries);
+    // #Speed
+    for len(state.entries) > max_entries {
+        free_entry(state.entries[0]);
+        pop_front(&state.entries);
     }
 }
 free_entry :: proc(entry : Entry) {
@@ -631,14 +628,14 @@ format_lines :: proc(entry : ^Entry) {
         start_byte_index := line_start;
         end_byte_index := byte_index + rune_size;
         line_so_far = entry.content[start_byte_index:end_byte_index if end_byte_index > -1 else len(entry.content)];
-        glyph_info := text.get_glyph_info(font, char);
+        glyph_info := text.get_glyph_info(state.font, char);
 
         line_width += glyph_info.advance;
         if last_char != -1 {
-            line_width += text.get_kerning_advance(font, last_char, char);
+            line_width += text.get_kerning_advance(state.font, last_char, char);
         }
         if char == '\t' {
-            space_glyph := text.get_glyph_info(font, ' ');
+            space_glyph := text.get_glyph_info(state.font, ' ');
             num_spaces := text.TAB_STOP_SIZE - (utf8.rune_count(line_so_far)) % (text.TAB_STOP_SIZE);
             line_width += space_glyph.advance * cast(f32)num_spaces;
         }
@@ -661,12 +658,12 @@ format_lines :: proc(entry : ^Entry) {
             rendered : imm.Rendered_Text;
             render_ok : bool;
             for atlas, i in state.history_atlases {
-                rendered, render_ok = imm.get_or_render_text(&state.history_atlases[i], line_so_far, font, imm_context);
+                rendered, render_ok = imm.get_or_render_text(&state.history_atlases[i], line_so_far, state.font, imm_context);
                 if render_ok do break;
             }
             if !render_ok {
                 append_atlas();
-                rendered, render_ok = imm.render_text(&state.history_atlases[state.history_atlas_index], line_so_far, font, imm_context);
+                rendered, render_ok = imm.render_text(&state.history_atlases[state.history_atlas_index], line_so_far, state.font, imm_context);
                 assert(render_ok, "Failed rendering console text");
             }
             append(&rendered_lines, rendered);
@@ -684,12 +681,12 @@ format_lines :: proc(entry : ^Entry) {
         rendered : imm.Rendered_Text;
         render_ok : bool;
         for atlas, i in state.history_atlases {
-            rendered, render_ok = imm.get_or_render_text(&state.history_atlases[i], line_so_far, font, imm_context);
+            rendered, render_ok = imm.get_or_render_text(&state.history_atlases[i], line_so_far, state.font, imm_context);
             if render_ok do break;
         }
         if !render_ok {
             append_atlas();
-            rendered, render_ok = imm.render_text(&state.history_atlases[state.history_atlas_index], line_so_far, font, imm_context);
+            rendered, render_ok = imm.render_text(&state.history_atlases[state.history_atlas_index], line_so_far, state.font, imm_context);
             assert(render_ok, "Failed rendering console text");
         }
         append(&rendered_lines, rendered);
@@ -770,7 +767,7 @@ send_command :: proc(line : string) -> (Command_Value, bool) {
 
     command_name := segments[0];
 
-    if command_name not_in commands {
+    if command_name not_in state.commands {
 
         push_entry(fmt.tprintf("No such command '%s'. Use command 'see_commands' for a list of all commands.", command_name), level=.Error);
 
@@ -778,7 +775,7 @@ send_command :: proc(line : string) -> (Command_Value, bool) {
         strings.builder_init_len_cap(&suggestions_builder, 0, 256);
         defer strings.builder_destroy(&suggestions_builder);
 
-        for existing_command in commands {
+        for existing_command in state.commands {
 
             this_len := utf8.rune_count(command_name);
             existing_len := utf8.rune_count(existing_command);
@@ -825,7 +822,7 @@ send_command :: proc(line : string) -> (Command_Value, bool) {
         return nil, false;
     }
     
-    command := commands[command_name];
+    command := state.commands[command_name];
     callback := command.base_callback;
 
     if len(command.params) != len(segments)-1 {
@@ -881,7 +878,7 @@ get_max_scroll :: proc() -> f32 {
 
 get_prompt_height :: proc() -> f32 {
     vert := get_vertical_padding();
-    return font.font_size + vert * 2;
+    return state.font.font_size + vert * 2;
 }
 get_view_height :: proc() -> f32 {
     window_size := gfx.get_window_size();
@@ -889,10 +886,10 @@ get_view_height :: proc() -> f32 {
     return full_height - get_prompt_height();
 }
 get_vertical_padding :: proc() -> f32 {
-    return font.font_size * VERTICAL_PADDING;
+    return state.font.font_size * VERTICAL_PADDING;
 }
 get_left_padding :: proc() -> f32 {
-    return font.font_size * LEFT_PADDING;
+    return state.font.font_size * LEFT_PADDING;
 }
 
 do_entries_exceed_view_height :: proc() -> bool {
@@ -903,7 +900,7 @@ do_entries_exceed_view_height :: proc() -> bool {
         
         assert(!entry.dirty);
 
-        sz := text.measure(font, entry.content);
+        sz := text.measure(state.font, entry.content);
 
         total_height += sz.y + get_vertical_padding();
 
@@ -947,9 +944,9 @@ set_caret_pos :: proc(pos : uint) {
     last_char :rune= 0;
     for char in strings.to_string(prompt_line) {
         if i > caret_pos do break;
-        glyph := text.get_glyph_info(font, char);
+        glyph := text.get_glyph_info(state.font, char);
         caret_target_x += glyph.advance;
-        if last_char != 0 do caret_target_x += text.get_kerning_advance(font, last_char, char);
+        if last_char != 0 do caret_target_x += text.get_kerning_advance(state.font, last_char, char);
         i += 1;
         last_char = char;
     }
@@ -958,10 +955,10 @@ set_caret_pos :: proc(pos : uint) {
 
     if caret_pos < cast(uint)get_prompt_len() {
         char := utf8.rune_at_pos(strings.to_string(prompt_line), cast(int)caret_pos);
-        glyph := text.get_glyph_info(font, char);
+        glyph := text.get_glyph_info(state.font, char);
         caret_target_w = cast(f32)glyph.advance - cast(f32)glyph.xbearing; // .width?
     } else {
-        caret_target_w = cast(f32)text.get_glyph_info(font, '0').width;
+        caret_target_w = cast(f32)text.get_glyph_info(state.font, '0').width;
     }
     caret_last_w = caret_visual_w;
 
@@ -1033,6 +1030,8 @@ update :: proc(dt : f32) {
 
 append_atlas :: proc() {
     window_size := gfx.get_window_size();
+    if window_size.x <= 0 do window_size.x = 1;
+    if window_size.y <= 0 do window_size.y = 0;
     new_atlas := imm.make_text_atlas(cast(int)window_size.x, ATLAS_HEIGHT);
     state.history_atlas_index = len(state.history_atlases);
     append(&state.history_atlases, new_atlas);
@@ -1095,9 +1094,9 @@ draw :: proc() {
     prompt_x := prompt_left + width / 2.0;
 
 
-    text_size := text.measure(font, prompt_text);
+    text_size := text.measure(state.font, prompt_text);
 
-    prompt_text_center_x := prompt_left + text_size.x / 2.0 + LEFT_PADDING * font.font_size;
+    prompt_text_center_x := prompt_left + text_size.x / 2.0 + LEFT_PADDING * state.font.font_size;
     prompt_text_left := prompt_text_center_x - text_size.x / 2.0;    
 
     
@@ -1118,7 +1117,7 @@ draw :: proc() {
         imm.begin(state.history_pipeline, imm_context);
         imm.clear_target(BASE_COLOR, imm_context);
         state.history_needs_render = false;
-        line_cur :f32= font.font_size + get_vertical_padding()*2;
+        line_cur :f32= state.font.font_size + get_vertical_padding()*2;
         line_cur_start := line_cur;
         line_start := (cast(int)yscroll)-1;
         line_count := 0;
@@ -1128,7 +1127,7 @@ draw :: proc() {
 
             if len(entry.content) <= 0 {
                 line_count += 1;
-                line_cur += f32(font.ascent + font.line_gap - font.descent) + get_vertical_padding();
+                line_cur += f32(state.font.ascent + state.font.line_gap - state.font.descent) + get_vertical_padding();
                 continue;
             }
 
@@ -1136,17 +1135,17 @@ draw :: proc() {
                 line_count += 1;
                 if line_count >= line_start {
                     // #Speed   !!!
-                    line_size := text.measure(font, line);
+                    line_size := text.measure(state.font, line);
                     content_left := prompt_text_left;
                     text_pos := lin.Vector3{ content_left + line_size.x/2.0, line_cur-line_size.y/2.0, 0 };
                     text_pos.x = math.round(text_pos.x);
                     text_pos.y = math.round(text_pos.y);
                     level_color := get_level_foreground_color(entry.level);
-                    imm.text(entry.rendered_lines[i], {2, -2, 0} + text_pos, font=font, color=gfx.BLACK);
-                    imm.text(entry.rendered_lines[i], text_pos, font=font, color=level_color if !entry.is_user else USER_ENTRY_COLOR, background_color=get_level_background_color(entry.level));
-                    line_cur += f32(font.ascent + font.line_gap - font.descent) + get_vertical_padding();
+                    imm.text(entry.rendered_lines[i], {2, -2, 0} + text_pos, font=state.font, color=gfx.BLACK);
+                    imm.text(entry.rendered_lines[i], text_pos, font=state.font, color=level_color if !entry.is_user else USER_ENTRY_COLOR, background_color=get_level_background_color(entry.level));
+                    line_cur += f32(state.font.ascent + state.font.line_gap - state.font.descent) + get_vertical_padding();
                 }
-                if line_cur - font.font_size > window_size.y {
+                if line_cur - state.font.font_size > window_size.y {
                     done = true;
                     break;
                 }
@@ -1168,14 +1167,14 @@ draw :: proc() {
     // Counter
     num_entries := len(state.entries);
     num_entry_text := fmt.tprintf("%i/%i", num_entries, max_entries);
-    entry_text_size := text.measure(font, num_entry_text);
+    entry_text_size := text.measure(state.font, num_entry_text);
     num_entry_text_pos := lin.Vector3{width - entry_text_size.x / 2.0 - get_left_padding(), window_size.y - prompt_height / 2.0, 0};
     imm.rectangle(num_entry_text_pos, entry_text_size * (1.0 + VERTICAL_PADDING*2.0), color=BASE_COLOR);
-    imm.text(num_entry_text, num_entry_text_pos, font=font);
+    imm.text(num_entry_text, num_entry_text_pos, font=state.font);
     
     // Prompt
     imm.rectangle({prompt_x, prompt_y, 0}, {width, prompt_height}, color=PROMPT_COLOR);
-    imm.text(prompt_text, {prompt_text_center_x, prompt_y, 0}, font=font, color=gfx.WHITE);
+    imm.text(prompt_text, {prompt_text_center_x, prompt_y, 0}, font=state.font, color=gfx.WHITE);
 
     if state.focused {
         // caret
@@ -1183,11 +1182,11 @@ draw :: proc() {
         caret_visual_x = caret_last_x + (caret_target_x - caret_last_x) * min(anim_progress, 1.0);
         caret_visual_w = caret_last_w + (caret_target_w - caret_last_w) * min(anim_progress, 1.0);
         caret_point := lin.Vector3{prompt_text_left + caret_visual_x + caret_visual_w/2.0, prompt_y, 0};
-        imm.rectangle(caret_point, { caret_visual_w, font.font_size }, color=state.caret_color);
+        imm.rectangle(caret_point, { caret_visual_w, state.font.font_size }, color=state.caret_color);
         if caret_pos < cast(uint)get_prompt_len() {
             char_under_caret := utf8.rune_at_pos(prompt_text, cast(int)caret_pos);
             str := utf8.runes_to_string([]rune{char_under_caret}, context.temp_allocator);
-            imm.text(str, caret_point, color=gfx.inverse_color(state.caret_color), font=font);
+            imm.text(str, caret_point, color=gfx.inverse_color(state.caret_color), font=state.font);
         }
     }
     
@@ -1200,7 +1199,7 @@ draw :: proc() {
 }
 
 set_font :: proc(new_font : ^text.Font_Variation) {
-    font = new_font;
+    state.font = new_font;
 }
 
 set_font_family_from_disk :: proc(path : string) -> (ok: bool) {
@@ -1214,12 +1213,12 @@ set_font_family_from_disk :: proc(path : string) -> (ok: bool) {
     
     new_font_family := text.open_font_family(path) or_return;
     
-    if did_console_create_font_family {
-        text.close_font_family(font_family);
+    if state.did_console_create_font_family {
+        text.close_font_family(state.font_family);
         delete(state.font_family_path);
     }
-    font_family = new_font_family;
-    did_console_create_font_family = true;
+    state.font_family = new_font_family;
+    state.did_console_create_font_family = true;
 
     state.font_family_path = strings.clone(path);
 
@@ -1242,12 +1241,12 @@ set_font_size :: proc(font_size : int) {
         return;
     }
 
-    first_font := font == nil;
+    first_font := state.font == nil;
 
-    if !first_font do text.delete_font_variation(font);
-    font = text.make_font_variation(font_family, cast(f32)font_size);
+    if !first_font do text.delete_font_variation(state.font);
+    state.font = text.make_font_variation(state.font_family, cast(f32)font_size);
     for entry,i in state.entries {
-        state.entries[i].size = text.measure(font, entry.content);
+        state.entries[i].size = text.measure(state.font, entry.content);
     }
     
     if !first_font do rerender_all();
@@ -1256,8 +1255,8 @@ set_font_size :: proc(font_size : int) {
 }
 
 reset_font :: proc() {
-    did_console_create_font_family = false;
-    font_family = imm_context.default_font_family;
+    state.did_console_create_font_family = false;
+    state.font_family = imm_context.default_font_family;
     state.font_family_path = "";
     set_font_size(DEFAULT_FONT_SIZE);
 }
@@ -1266,6 +1265,7 @@ init :: proc (ctx : ^imm.Imm_Context) {
     imm_context = ctx;
     //muted = true;
     
+    state = {};
     
     assert(gfx.window != nil, "Window needs to be initialized before term is");
     
@@ -1278,13 +1278,13 @@ init :: proc (ctx : ^imm.Imm_Context) {
     
     strings.builder_init(&prompt_line);
     
-    font_family = imm_context.default_font_family;
-    did_console_create_font_family = false;
+    state.font_family = imm_context.default_font_family;
+    state.did_console_create_font_family = false;
     state.font_family_path = "";
     state.font_size = DEFAULT_FONT_SIZE;
 
     state.entries = make([dynamic]Entry);
-    commands = make(map[string]Command);
+    state.commands = make(map[string]Command);
     state.command_history = make([dynamic]string);
     enum_types = make(map[string]runtime.Type_Info_Enum);
     state.level_toggle_flags[int(log.Level.Debug)]   = true;
@@ -1329,12 +1329,49 @@ init :: proc (ctx : ^imm.Imm_Context) {
     push_entry("ESC to close ");
     push_entry("F1 to open/expand/contract ");
 
+    bind_default_commands();
+}
+
+shutdown :: proc() {
+    muted = true;
+    log.debug("Console shutdown");
+
+    delete(state.command_history);
+
+    delete(state.last_suggestions);
+
+    // #Leak
+    // Things get weird when content comes from disk.
+    // Or actually the problem might be with when max_entires is reached
+    //for e,i in state.entries {
+        //delete(e.content); 
+    //}
+    delete(state.entries);
+
+    jvk.destroy_render_target(state.history_target);
+    jvk.destroy_texture(state.history_texture);
+    jvk.destroy_pipeline(state.history_pipeline);
+
+    for atlas in state.history_atlases {
+        imm.destroy_text_atlas(atlas);
+    }
+    delete(state.history_atlases);
+
+    text.delete_font_variation(state.font);
+    if state.did_console_create_font_family {
+        text.close_font_family(state.font_family);
+    }
+
+    delete(state.commands);
+}
+
+bind_default_commands :: proc() {
     bind_command("see_commands", proc () {
         builder : strings.Builder;
 
-        sorted_keys := make([]string, len(commands));
+        sorted_keys := make([]string, len(state.commands));
         next := 0;
-        for command_name in commands {
+        for command_name in state.commands {
             sorted_keys[next] = command_name;
             next += 1;
         }
@@ -1346,7 +1383,7 @@ init :: proc (ctx : ^imm.Imm_Context) {
         strings.write_string(&builder, "List of commands:");
 
         for command_name in sorted_keys {
-            command := commands[command_name];
+            command := state.commands[command_name];
             strings.write_string(&builder, fmt.tprintf("\n\n---- %s", command_name));
             if command.params != nil {
                 strings.write_string(&builder, ":");
@@ -1438,8 +1475,8 @@ But whoever lives by the truth comes into the light, so that it may be seen plai
     });
  
     bind_command("help", proc(command_name : string) -> string {
-        if command_name in commands {
-            command := commands[command_name];
+        if command_name in state.commands {
+            command := state.commands[command_name];
             return command.help_str;
         } else {
             return "No such command";
@@ -1738,36 +1775,6 @@ But whoever lives by the truth comes into the light, so that it may be seen plai
     });
 }
 
-shutdown :: proc() {
-    muted = true;
-    log.debug("Console shutdown");
-
-    delete(state.command_history);
-    delete(state.last_suggestions);
-    for e,i in state.entries {
-        delete(e.content);
-    }
-    delete(state.entries);
-
-    jvk.destroy_render_target(state.history_target);
-    jvk.destroy_texture(state.history_texture);
-    jvk.destroy_pipeline(state.history_pipeline);
-
-    for atlas in state.history_atlases {
-        imm.destroy_text_atlas(atlas);
-    }
-    delete(state.history_atlases);
-
-    text.delete_font_variation(font);
-    if did_console_create_font_family {
-        text.close_font_family(font_family);
-    }
-
-    delete(commands);
-}
-
-
-
 Console_Logger :: struct {
     file_handle : os.Handle,
 }
@@ -1785,7 +1792,7 @@ console_logger_proc :: proc(logger_data: rawptr, level: log.Level, text: string,
     filename := location.file_path[last_slash+1:] if last_slash != -1 else location.file_path;
     fmt.printf("%s [%s:%i]: %s\n", level, filename, location.line, text);
     
-    if font != nil && #file != location.file_path do push_entry(text, level);
+    if state.font != nil && #file != location.file_path do push_entry(text, level);
     logger := cast(^Console_Logger)logger_data;
     if logger.file_handle != os.INVALID_HANDLE {
         os.write_string(logger.file_handle, text);

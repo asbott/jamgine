@@ -221,7 +221,7 @@ assure_glyph_rendered :: proc(using font : ^Font_Variation, g : rune, loc := #ca
         sampler := jvk.DEFAULT_SAMPLER_SETTINGS;
         sampler.min_filter = .NEAREST;
         sampler.mag_filter = .NEAREST;
-        atlas.texture = jvk.make_texture(cast(int)atlas_width, cast(int)atlas_height, nil, .SR, {.SAMPLE, .WRITE}, sampler);
+        atlas.texture = jvk.make_texture(cast(int)atlas_width, cast(int)atlas_height, nil, .R_UNORM, {.SAMPLE, .WRITE}, sampler);
         atlas.start = cast(u32)(atlas_index * ATLAS_RANGE);
         atlas.end   = cast(u32)(atlas.start + ATLAS_RANGE);
     }

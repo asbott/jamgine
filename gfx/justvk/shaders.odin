@@ -63,7 +63,11 @@ log_layout :: proc(layout : Glsl_Layout) {
     }
 }
 
-compile_shader_source :: proc(dc : ^Device_Context, src : string, kind : Glsl_Stage_Kind, constants : []Shader_Constant = nil, allocator := context.allocator) -> (module : Shader_Module, ok : bool) {
+add_standard_shader_macros :: proc(opts : shaderc.compileOptionsT, using dc : ^Device_Context) {
+    shaderc.compile_options_add_macro_definition(opts, "highp_float", len("highp_float"), "double" if graphics_device.features.shaderFloat64 else "float", len("double") if graphics_device.features.shaderFloat64 else len("float"));
+    shaderc.compile_options_add_macro_definition(opts, "RAND_MOD_RANGE", len("RAND_MOD_RANGE"), "2000", len("2000"));
+}
+compile_shader_source :: proc(using dc : ^Device_Context, src : string, kind : Glsl_Stage_Kind, constants : []Shader_Constant = nil, allocator := context.allocator) -> (module : Shader_Module, ok : bool) {
     context.allocator = allocator;
     // #Memory
 
@@ -92,6 +96,7 @@ compile_shader_source :: proc(dc : ^Device_Context, src : string, kind : Glsl_St
         }
         shaderc.compile_options_add_macro_definition(opts, strings.clone_to_cstring(constant.name, allocator=context.temp_allocator), len(constant.name), strings.clone_to_cstring(val_str, allocator=context.temp_allocator), len(val_str));
     }
+    add_standard_shader_macros(opts, dc);
 
     shaderc_kind : shaderc.shaderKind;
     switch kind {

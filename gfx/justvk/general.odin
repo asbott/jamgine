@@ -12,6 +12,11 @@ import "core:os"
 import vk "vendor:vulkan"
 import "vendor:glfw"
 
+@(private)
+temp_surface : vk.SurfaceKHR;
+@(private)
+temp_window : glfw.WindowHandle;
+
 vk_instance : vk.Instance;
 vk_messenger : vk.DebugUtilsMessengerEXT;
 
@@ -233,9 +238,11 @@ find_memory_index :: proc(using dc : ^Device_Context, type_bits : u32, required_
 }
 
 
-make_render_pass :: proc(format : vk.Format, standard_layout, render_layout : vk.ImageLayout, num_attachments : int = 1, using dc := target_dc) -> Render_Pass {
+make_render_pass :: proc(format : vk.Format, standard_layout, render_layout : vk.ImageLayout, num_color_attachments : int = 1, use_depth_attachment := false, using dc := target_dc) -> Render_Pass {
     
-    assert(num_attachments > 0);
+    assert(num_color_attachments > 0);
+
+    num_attachments := num_color_attachments + (1 if use_depth_attachment else 0);
 
     attachments := make([]vk.AttachmentDescription, num_attachments);
     attachment_refs := make([]vk.AttachmentReference, num_attachments);
@@ -245,7 +252,7 @@ make_render_pass :: proc(format : vk.Format, standard_layout, render_layout : vk
     }
 
 
-    for i in 0..<num_attachments {
+    for i in 0..<num_color_attachments {
         attachment : vk.AttachmentDescription;
         attachment.format = format;
         attachment.samples = {._1};
@@ -264,23 +271,53 @@ make_render_pass :: proc(format : vk.Format, standard_layout, render_layout : vk
         attachment_refs[i] = attachment_ref;
     }
 
+    if use_depth_attachment {
+        attachment : vk.AttachmentDescription;
+        attachment.format = dc.graphics_device.depth_format;
+        attachment.samples = {._1};
+        attachment.loadOp = .LOAD;
+        attachment.storeOp = .STORE;
+        attachment.stencilLoadOp = .DONT_CARE;
+        attachment.stencilStoreOp = .DONT_CARE;
+        attachment.initialLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        attachment.finalLayout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        attachment_ref : vk.AttachmentReference;
+        attachment_ref.attachment = cast(u32)num_color_attachments;
+        attachment_ref.layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        attachments[num_color_attachments] = attachment;
+        attachment_refs[num_color_attachments] = attachment_ref;
+    }
+
     // #Depth #Limitation
     subpass : vk.SubpassDescription;
-    subpass.colorAttachmentCount = cast(u32)num_attachments;
+    subpass.pipelineBindPoint = .GRAPHICS;
+    subpass.colorAttachmentCount = cast(u32)num_color_attachments;
+    assert(num_color_attachments == 1); // #Temporary #Debug
     subpass.pColorAttachments = slice_to_multi_ptr(attachment_refs);
+    if use_depth_attachment {
+        subpass.pDepthStencilAttachment = &attachment_refs[num_color_attachments];
+    }
     
-    // #Incomplete #Limitation
     dependency : vk.SubpassDependency;
     dependency.srcSubpass = vk.SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
-    dependency.srcStageMask = {.COLOR_ATTACHMENT_OUTPUT};
-    dependency.srcAccessMask = {};
-    dependency.dstStageMask = {.COLOR_ATTACHMENT_OUTPUT};
-    dependency.dstAccessMask = {.COLOR_ATTACHMENT_WRITE};
+    if !use_depth_attachment {
+        dependency.srcStageMask = {.COLOR_ATTACHMENT_OUTPUT};
+        dependency.srcAccessMask = {};
+        dependency.dstStageMask = {.COLOR_ATTACHMENT_OUTPUT};
+        dependency.dstAccessMask = {.COLOR_ATTACHMENT_WRITE};
+    } else {
+        dependency.srcStageMask = {.EARLY_FRAGMENT_TESTS, .COLOR_ATTACHMENT_OUTPUT};
+        dependency.srcAccessMask = {};
+        dependency.dstStageMask = {.EARLY_FRAGMENT_TESTS, .COLOR_ATTACHMENT_OUTPUT};
+        dependency.dstAccessMask = {.DEPTH_STENCIL_ATTACHMENT_WRITE, .COLOR_ATTACHMENT_WRITE};
+    }
     
     render_pass_info : vk.RenderPassCreateInfo;
     render_pass_info.sType = .RENDER_PASS_CREATE_INFO;
-    render_pass_info.attachmentCount = cast(u32)num_attachments;
+    render_pass_info.attachmentCount = cast(u32)len(attachments);
     render_pass_info.pAttachments = slice_to_multi_ptr(attachments);
     render_pass_info.subpassCount = 1;
     render_pass_info.pSubpasses = &subpass;
@@ -397,7 +434,7 @@ init :: proc(application_name := "Vulkan Game App") -> bool {
     app_info.applicationVersion = vk.MAKE_VERSION(1, 0, 0);
     app_info.pEngineName = "Jamgine Vulkan Renderer";
     app_info.engineVersion = vk.MAKE_VERSION(1, 0, 0);
-    app_info.apiVersion = vk.API_VERSION_1_2;
+    app_info.apiVersion = vk.API_VERSION_1_3;
 
     create_info : vk.InstanceCreateInfo;
     create_info.sType = .INSTANCE_CREATE_INFO;
@@ -482,11 +519,19 @@ init :: proc(application_name := "Vulkan Game App") -> bool {
         if vk.CreateDebugUtilsMessengerEXT(vk_instance, &debug_create_info, nil, &vk_messenger) != .SUCCESS do log.error("Failed creating VK debug messenger");
     }
 
+    glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API);
+    glfw.WindowHint(glfw.VISIBLE, glfw.FALSE);
+    temp_window = glfw.CreateWindow(1, 1, "TEMPORARY FOR INITIALIZATION YOU SHOULD NOT SEE THIS", nil, nil);
+    glfw.CreateWindowSurface(vk_instance, temp_window, nil, &temp_surface);
+    
+
     return true;
 }
 
 shutdown :: proc() {
     log.debug("Justvk shutdown");
+    vk.DestroySurfaceKHR(vk_instance, temp_surface, nil);
+    glfw.DestroyWindow(temp_window);
     when ODIN_DEBUG {
         vk.DestroyDebugUtilsMessengerEXT(vk_instance, vk_messenger, nil);
     }

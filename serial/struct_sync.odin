@@ -83,9 +83,9 @@ bind_struct_data_to_file :: proc(data : ^$Struct, path : string, sync : Disk_Syn
 
         read_struct_from_file(&binding);
 
-        write_struct_to_file(&binding);
-
         os.close(binding.file_handle);
+        
+        write_struct_to_file(&binding);
     } else if start_action != .NOTHING do panic("unimplemented"); // #Incomplete
 
     switch sync {
@@ -316,6 +316,20 @@ assign_json_value :: proc(ptr : rawptr, type : ^reflect.Type_Info, name : string
                 }
             }
         }
+        case reflect.Type_Info_Matrix: {
+            if !check_field_is(name,value, json.Array) do return;
+
+            matrix_count := int(type.size / v.elem_size);
+
+            elem_type := base_or_self(v.elem);
+            json_len := len(value.(json.Array));
+
+            for i in 0..<min(json_len, matrix_count) {
+                offset := i * v.elem_size;
+                assign_json_value(mem.ptr_offset(cast(^u8)ptr, offset), elem_type, fmt.tprint(i), value.(json.Array)[i]);
+            }
+
+        }
         case: log.warn("Unsupported type", v, "in synced struct"); return;
     }
 }
@@ -484,7 +498,17 @@ to_json_value :: proc(ptr : rawptr, type : ^reflect.Type_Info) -> json.Value {
                 }
             }
         }
+        case reflect.Type_Info_Matrix: {
+            matrix_size := type.size;
+            elem_size := v.elem_size;
 
+            if elem_size == 4 {
+                return ptr_to_json_array(ptr, base_or_self(v.elem), cast(int)(matrix_size / elem_size));
+            } else {
+                log.warn("Unsupported matrix element size", elem_size);
+                return nil;
+            }
+        }
         
 
         case: log.warn("Unsupported type", v, "in synced struct"); return nil;

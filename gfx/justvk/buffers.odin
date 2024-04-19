@@ -339,20 +339,26 @@ destroy_index_buffer :: proc(ibo : ^Index_Buffer) {
     free(ibo);
 }
 
-make_uniform_buffer :: proc($T : typeid, storage_kind : Buffer_Storage_Kind, allocator := context.allocator, using dc := target_dc) -> ^Uniform_Buffer {
-    context.allocator = allocator;
-
+make_uniform_buffer_from_size :: proc(size : int, storage_kind : Buffer_Storage_Kind, using dc := target_dc) -> ^Uniform_Buffer {
     ubo := new(Uniform_Buffer);
 
-    size := (size_of(T));
-    data : T; // Initialize zero #Speed
-    init_buffer_base(dc, ubo, size, {.UNIFORM_BUFFER, .TRANSFER_DST}, .EXCLUSIVE, storage_kind, .UNIFORM, &data);
+    init_buffer_base(dc, ubo, size, {.UNIFORM_BUFFER, .TRANSFER_DST}, .EXCLUSIVE, storage_kind, .UNIFORM, nil);
 
     ubo.desc_info.buffer = ubo.vk_buffer;
     ubo.desc_info.offset = 0;
-    ubo.desc_info.range = size_of(T);
+    ubo.desc_info.range = cast(vk.DeviceSize)size;
 
     return ubo;
+}
+make_uniform_buffer_from_type :: proc($T : typeid, storage_kind : Buffer_Storage_Kind, using dc := target_dc) -> ^Uniform_Buffer {
+    ubo := make_uniform_buffer_from_size(size_of(T), storage_kind, dc);
+    zero : T; 
+    set_buffer_data(ubo, &zero, size_of(T)); // #Speed zero initialization
+    return ubo;
+}
+make_uniform_buffer :: proc {
+    make_uniform_buffer_from_size,
+    make_uniform_buffer_from_type,
 }
 destroy_uniform_buffer :: proc(ubo : ^Uniform_Buffer) {
     using ubo.dc;
@@ -374,19 +380,24 @@ destroy_uniform_buffer :: proc(ubo : ^Uniform_Buffer) {
     free(ubo);
 }
 
-make_storage_buffer :: proc($T : typeid, storage_kind : Buffer_Storage_Kind, allocator := context.allocator, using dc := target_dc) -> ^Storage_Buffer {
-    context.allocator = allocator;
-
+make_storage_buffer_from_size :: proc(size : int, storage_kind : Buffer_Storage_Kind, using dc := target_dc) -> ^Storage_Buffer {
     sbo := new(Storage_Buffer);
 
-    size := (size_of(T));
     init_buffer_base(dc, sbo, size, {.STORAGE_BUFFER, .TRANSFER_DST, .TRANSFER_SRC}, .EXCLUSIVE, storage_kind, .STORAGE, nil);
 
     sbo.desc_info.buffer = sbo.vk_buffer;
     sbo.desc_info.offset = 0;
-    sbo.desc_info.range = size_of(T);
+    sbo.desc_info.range = cast(vk.DeviceSize)size;
 
     return sbo;
+}
+make_storage_buffer_from_type :: proc($T : typeid, storage_kind : Buffer_Storage_Kind, using dc := target_dc) -> ^Storage_Buffer {
+    size := (size_of(T));
+    return make_storage_buffer_from_size(size, storage_kind, dc);
+}
+make_storage_buffer :: proc {
+    make_storage_buffer_from_size,
+    make_storage_buffer_from_type,
 }
 destroy_storage_buffer :: proc(sbo : ^Storage_Buffer) {
     using sbo.dc;

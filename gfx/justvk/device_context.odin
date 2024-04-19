@@ -31,7 +31,7 @@ Device_Context :: struct {
 
     null_ubo : ^Uniform_Buffer,
     null_sbo : ^Storage_Buffer,
-    null_texture_rgba : Texture,
+    null_texture_srgb : Texture,
 
     pipelines : [dynamic]^Pipeline, // #Sync this needs to be synced if we are to delete resources & make pipelines in async
 }
@@ -65,10 +65,18 @@ make_device_context :: proc(specific_device : Maybe(Graphics_Device) = nil, allo
         }
     }
 
+    log.debug("Device context targetting device:");
+    log.debug("\tName:", graphics_device.device_name);
+    log.debug("\tVendor:", graphics_device.vendor_name);
+    log.debug("\tDriver Version:", graphics_device.driver_version_string);
+    log.debug("\tType:", graphics_device.props.deviceType);
+    log.debug("\tDepth format:", graphics_device.depth_format);
+    log.debug("\tGLSL f64 support:", graphics_device.features.shaderFloat64);
+
 
     log.debug("Available queues:")
     for q,i in graphics_device.queue_family_properties {
-        log.debug("\tindex:", i, "flags:", q.queueFlags);
+        log.debug("\tindex:", i, "flags:", q.queueFlags, "count:", q.queueCount);
     }
 
     // [queue_id]count
@@ -77,72 +85,78 @@ make_device_context :: proc(specific_device : Maybe(Graphics_Device) = nil, allo
 
     graphics_index, present_index, transfer_index, compute_index : u32 = c.UINT32_MAX,c.UINT32_MAX,c.UINT32_MAX,c.UINT32_MAX;
 
-    // Graphics queue: first best with GRAPHICS flag
-    for fam,i in graphics_device.queue_family_properties {
-        if .GRAPHICS in fam.queueFlags {
-            graphics_family = cast(u32)i;
-            graphics_index = used_queues_set[cast(u32)i];
-            used_queues_set[cast(u32)i] += 1;
-            log.debug("Picked graphics queue: ", fam.queueFlags, "index", graphics_index);
-            break;
-        }
-    }
-    if graphics_index == c.UINT32_MAX do panic("Missing graphics queue");
+    Accept_Queue_Proc :: #type proc(^Device_Context, vk.QueueFamilyProperties, int) -> bool;
 
-    // #Incomplete #Refactor
-    temp_surface : vk.SurfaceKHR;
-    glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API);
-    glfw.WindowHint(glfw.VISIBLE, glfw.FALSE);
-    glfw_window := glfw.CreateWindow(1, 1, "TEMPORARY FOR INITIALIZATION YOU SHOULD NOT SEE THIS", nil, nil);
-    glfw.CreateWindowSurface(vk_instance, glfw_window, nil, &temp_surface);
-    defer vk.DestroySurfaceKHR(vk_instance, temp_surface, nil);
-    defer glfw.DestroyWindow(glfw_window);
+    pick_queue :: proc(using dc : ^Device_Context, used_queues_set : ^map[u32]u32, accept_proc : Accept_Queue_Proc) -> (family, index : u32, ok : bool) {
 
-    // Present queue: First best where parallel queue is available
-    for fam,i in graphics_device.queue_family_properties {
-        
-        supports_present : b32;
-        vk.GetPhysicalDeviceSurfaceSupportKHR(graphics_device.vk_physical_device, cast(u32)i, temp_surface, &supports_present);
-        if supports_present {
-            if cast(u32)i not_in used_queues_set || used_queues_set[cast(u32)i] < fam.queueCount {
-                present_family = cast(u32)i;
-                present_index = used_queues_set[cast(u32)i];
-                log.debug("Picked present queue:  ", fam.queueFlags, "index", present_index);
-                used_queues_set[cast(u32)i] += 1;
-                break;
+        backup_family, backup_index : Maybe(u32);
+
+        // First, try to find a queue that is concurrent
+        for fam,i in graphics_device.queue_family_properties {
+            if accept_proc(dc, fam, i) {
+                if cast(u32)i not_in used_queues_set || used_queues_set[cast(u32)i] < fam.queueCount {
+                    family = cast(u32)i;
+                    index = used_queues_set[cast(u32)i];
+                    used_queues_set[cast(u32)i] += 1;
+                    log.debug("Picked concurrent queue: ", fam.queueFlags, "index", index);
+                    return family, index, true;
+                } else {
+                    backup_family = cast(u32)i;
+                    backup_index = used_queues_set[cast(u32)i]-1;
+                }
             }
         }
-    }
-    if present_index == c.UINT32_MAX do panic("Missing present queue");
-        
-    // Transfer queue: First best where parallel queue is available
-    for fam,i in graphics_device.queue_family_properties {
-        if .TRANSFER in fam.queueFlags {
-            transfer_family = cast(u32)i;
-            transfer_index = used_queues_set[cast(u32)i];
-            used_queues_set[cast(u32)i] += 1;
-            log.debug("Picked transfer queue:", fam.queueFlags, "index", transfer_index);
-            break;
-        }
-    }
-    if transfer_index == c.UINT32_MAX do panic("Missing transfer queue");
 
-    for fam,i in graphics_device.queue_family_properties {
-        if .COMPUTE in fam.queueFlags {
-            compute_family = cast(u32)i;
-            compute_index = used_queues_set[cast(u32)i];
-            used_queues_set[cast(u32)i] += 1;
-            log.debug("Picked compute queue:", fam.queueFlags, "index", compute_index);
-            break;
+        // If no concurrent queue was found, use the backup (already found & used queue)
+        if backup_family != nil {
+            family = backup_family.(u32);
+            index = backup_index.(u32);
+            log.debug("Re-picked queue: ", graphics_device.queue_family_properties[backup_family.(u32)].queueFlags, "index", backup_index.(u32));
+            return family, index, true;
         }
+        return 0, 0, false;
     }
-    if compute_index == c.UINT32_MAX do panic("Missing compute queue");
+
+
+    log.debug("Picking graphics queue...");
+    graphics_ok : bool;
+    graphics_family, graphics_index, graphics_ok = pick_queue(dc, &used_queues_set, proc(using dc : ^Device_Context, fam : vk.QueueFamilyProperties, index : int) -> bool { 
+        return .GRAPHICS in fam.queueFlags; 
+    });
+    if !graphics_ok {
+        panic("Missing graphics queue");
+    }    
+
+    log.debug("Picking present queue...");
+    present_ok : bool;
+    present_family, present_index, present_ok = pick_queue(dc, &used_queues_set, proc(using dc : ^Device_Context, fam : vk.QueueFamilyProperties, index : int) -> bool { 
+        return graphics_device.queue_family_surface_support[index];
+    });
+    if !present_ok {
+        panic("Missing present queue");
+    }
+    
+    log.debug("Picking transfer queue...");
+    transfer_ok : bool;
+    transfer_family, transfer_index, transfer_ok = pick_queue(dc, &used_queues_set, proc(using dc : ^Device_Context, fam : vk.QueueFamilyProperties, index : int) -> bool { 
+        return .TRANSFER in fam.queueFlags; 
+    });
+    if !transfer_ok {
+        panic("Missing transfer queue");
+    }
+
+    log.debug("Picking compute queue...");
+    compute_ok : bool;
+    compute_family, compute_index, compute_ok = pick_queue(dc, &used_queues_set, proc(using dc : ^Device_Context, fam : vk.QueueFamilyProperties, index : int) -> bool { 
+        return .COMPUTE in fam.queueFlags; 
+    });
+    if !compute_ok {
+        panic("Missing compute queue");
+    }
     
     //
     // Create Logical Device
         
-    log.infof("Targetting GPU:\n\t%s\n\t%s Driver Version %s\n", graphics_device.device_name, graphics_device.vendor_name, graphics_device.driver_version_string);
-    
     target_queue_indices := make([]u32, len(used_queues_set));
     defer delete(target_queue_indices);
     i := 0;
@@ -168,7 +182,7 @@ make_device_context :: proc(specific_device : Maybe(Graphics_Device) = nil, allo
     // If we were for some reason to sometime target very old hardware,
     // then we may want to instead conditionally use these features.
     required_features.samplerAnisotropy = true;
-    
+    if graphics_device.features.shaderFloat64 do required_features.shaderFloat64 = true;
     
     if !check_physical_device_features(graphics_device, required_features) {
         panic("Missing a device feature; cannot continue.");
@@ -221,12 +235,9 @@ make_device_context :: proc(specific_device : Maybe(Graphics_Device) = nil, allo
 
     log.infof("Created a device context\n");
 
-    Null :: struct {
-        _ : int,
-    }
-    null_ubo = make_uniform_buffer(Null, .VRAM_WITH_IMPROVISED_STAGING_BUFFER, allocator=allocator, dc=dc);
-    null_sbo = make_storage_buffer(Null, .VRAM_WITH_IMPROVISED_STAGING_BUFFER, allocator=allocator, dc=dc);
-    null_texture_rgba = make_texture(1, 1, nil, .RGBA, {.SAMPLE, .WRITE}, dc=dc);
+    null_ubo = make_uniform_buffer(1, .VRAM_WITH_IMPROVISED_STAGING_BUFFER, dc=dc);
+    null_sbo = make_storage_buffer(1, .VRAM_WITH_IMPROVISED_STAGING_BUFFER, dc=dc);
+    null_texture_srgb = make_texture(1, 1, nil, .SRGBA, {.SAMPLE, .WRITE}, dc=dc);
 
     return dc;
 }
@@ -236,7 +247,7 @@ destroy_device_context :: proc(using dc : ^Device_Context) {
 
     destroy_uniform_buffer(dc.null_ubo);
     destroy_storage_buffer(dc.null_sbo);
-    destroy_texture(dc.null_texture_rgba);
+    destroy_texture(dc.null_texture_srgb);
     
     vk.DestroyRenderPass(vk_device, dc.default_offscreen_color_render_pass_argb_bytes.vk_pass, nil);
     vk.DestroyRenderPass(vk_device, dc.default_offscreen_color_render_pass_srgb_f16.vk_pass, nil);

@@ -65,6 +65,7 @@ compile_compute_shader :: proc(src : string, constants : []Shader_Constant = nil
         }
         shaderc.compile_options_add_macro_definition(opts, strings.clone_to_cstring(constant.name, allocator=context.temp_allocator), len(constant.name), strings.clone_to_cstring(val_str, allocator=context.temp_allocator), len(val_str));
     }
+    add_standard_shader_macros(opts, dc);
 
     // #Incomplete
     // We discard of the original source so if we need to recompile
@@ -110,6 +111,16 @@ compile_compute_shader :: proc(src : string, constants : []Shader_Constant = nil
                 log.error("Compute shader glsl inspect error %s: %s", err.kind, err.str);
                 vk.DestroyShaderModule(dc.vk_device, cs.vk_module, nil);
                 return;
+            }
+
+            if cs.info.layout.push_constant != nil {
+                ps := &cs.info.layout.push_constant.(Glsl_Field);
+                max_ps_size := dc.graphics_device.props.limits.maxPushConstantsSize;
+
+                if ps.type.size > cast(int)max_ps_size {
+                    log.warn("Compute Push constant size %i exceeds device limit %i, it is truncated to device limit.", ps.type.size, max_ps_size);
+                    ps.type.size = cast(int)max_ps_size;
+                }
             }
         } else {
             log.error("Failed creating shader module");
@@ -174,7 +185,7 @@ make_compute_context :: proc(cs : Compute_Shader) -> ^Compute_Context {
         range : vk.PushConstantRange;
         range.offset = 0;
         range.size = min(ps_size, max_ps_size);
-        range.stageFlags = {.VERTEX}; // #Limitation #Incomplete
+        range.stageFlags = {.COMPUTE};
         layout_info.pushConstantRangeCount = 1;
         layout_info.pPushConstantRanges = &range;
 
@@ -337,7 +348,7 @@ bind_compute_texture :: proc(ctx : ^Compute_Context, texture : Texture, binding_
 
 
 
-do_compute :: proc(ctx : ^Compute_Context, x_elem_count : int, y_elem_count := 1, z_elem_count := 1, signal_sem : vk.Semaphore = 0) {
+do_compute :: proc(ctx : ^Compute_Context, x_elem_count : int, y_elem_count := 1, z_elem_count := 1, push_constant : rawptr = nil, signal_sem : vk.Semaphore = 0) {
     using ctx.dc;
 
     // #Sync #Speed
@@ -358,7 +369,10 @@ do_compute :: proc(ctx : ^Compute_Context, x_elem_count : int, y_elem_count := 1
     group_size_x := (x_elem_count + local_size_x - 1) / local_size_x;
     group_size_y := (y_elem_count + local_size_y - 1) / local_size_y;
     group_size_z := (z_elem_count + local_size_z - 1) / local_size_z;
-    
+
+    if push_constant != nil && ctx.shader.info.layout.push_constant != nil {
+        vk.CmdPushConstants(ctx.command_buffer, ctx.vk_layout, {.COMPUTE}, 0, cast(u32)ctx.shader.info.layout.push_constant.(Glsl_Field).type.size, push_constant);
+    }
     vk.CmdDispatch(ctx.command_buffer, cast(u32)group_size_x, cast(u32)group_size_y, cast(u32)group_size_z);
     check_vk_result(vk.EndCommandBuffer(ctx.command_buffer));
     submit_info : vk.SubmitInfo;

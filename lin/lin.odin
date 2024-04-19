@@ -1,6 +1,8 @@
 package lin
 
 import "core:math/linalg/glsl"
+import "core:math/linalg"
+
 
 Vector2 :: glsl.vec2;
 Vector3 :: glsl.vec3;
@@ -15,6 +17,9 @@ Vector3u :: glsl.uvec3;
 Vector4u :: glsl.uvec4;
 
 Matrix4 :: glsl.mat4;
+Matrix3 :: glsl.mat3;
+
+Quat :: glsl.quat;
 
 
 identity :: glsl.identity
@@ -23,14 +28,20 @@ translate   :: proc{ glsl.mat4Translate }
 rotate      :: proc{ glsl.mat4Rotate }
 scale       :: proc{ glsl.mat4Scale }
 perspective :: glsl.mat4Perspective
-lookAt      :: glsl.mat4LookAt
-inverse     :: glsl.inverse
+look_at      :: glsl.mat4LookAt
+//inverse     :: glsl.inverse
+inverse :: proc(m : Matrix4) -> Matrix4 {
+    return linalg.matrix4x4_inverse(m);
+}
 transpose   :: glsl.transpose
 
 length      :: glsl.length
 cross       :: glsl.cross
 normalize   :: glsl.normalize
 dot         :: glsl.dot;
+
+quat_from_axis_angle :: glsl.quatAxisAngle;
+mat4_from_quat :: glsl.mat4FromQuat;
 
 normalize_or_0 :: proc(v : $T) -> T { 
     if length(v) == 0 do return 0; 

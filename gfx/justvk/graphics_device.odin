@@ -7,6 +7,7 @@ import "core:builtin"
 import "core:mem"
 import "core:slice"
 import "core:reflect"
+import "core:os"
 
 import vk "vendor:vulkan"
 import "vendor:glfw"
@@ -17,17 +18,18 @@ Queue_Family_Set :: struct {
     transfer  : Maybe(u32),
 }
 Graphics_Device :: struct {
-    vk_physical_device      : vk.PhysicalDevice,
-    props                   : vk.PhysicalDeviceProperties,
-    memory_props            : vk.PhysicalDeviceMemoryProperties,
-    extension_properties    : []vk.ExtensionProperties,
-    features                : vk.PhysicalDeviceFeatures,
-    queue_family_properties : []vk.QueueFamilyProperties,
-    device_name             : string,
-    vendor_name             : string,
-    driver_version_raw      : u32,
-    driver_version_string   : string,
-
+    vk_physical_device           : vk.PhysicalDevice,
+    props                        : vk.PhysicalDeviceProperties,
+    memory_props                 : vk.PhysicalDeviceMemoryProperties,
+    extension_properties         : []vk.ExtensionProperties,
+    features                     : vk.PhysicalDeviceFeatures,
+    queue_family_properties      : []vk.QueueFamilyProperties,
+    queue_family_surface_support : []bool, // Index is the queue family index
+    device_name                  : string,
+    vendor_name                  : string,
+    driver_version_raw           : u32,
+    driver_version_string        : string,
+    depth_format                 : vk.Format,    
 }
 Swap_Chain_Support_Details :: struct {
     capabilities : vk.SurfaceCapabilitiesKHR,
@@ -96,14 +98,26 @@ get_all_graphics_devices :: proc(result : ^[]Graphics_Device, loc := #caller_loc
     }
 }
 
+select_supported_format :: proc(formats : []vk.Format, tiling : vk.ImageTiling, features : vk.FormatFeatureFlags, gd : Graphics_Device) -> (format : vk.Format, ok : bool) {
+    for format in formats {
+        props : vk.FormatProperties;
+        vk.GetPhysicalDeviceFormatProperties(gd.vk_physical_device, format, &props);
+        if tiling == .LINEAR && (features & props.linearTilingFeatures) == features   do return format, true;
+        if tiling == .OPTIMAL && (features & props.optimalTilingFeatures) == features do return format, true;
+    }
+    return .A1R5G5B5_UNORM_PACK16, false;
+}
+
 @(private)
 query_physical_device :: proc(pdevice : vk.PhysicalDevice) -> Graphics_Device {
     gdevice : Graphics_Device;
-    
+
+    // #Leaks
+
     vk.GetPhysicalDeviceProperties(pdevice, &gdevice.props);
     vk.GetPhysicalDeviceMemoryProperties(pdevice, &gdevice.memory_props);
     vk.GetPhysicalDeviceFeatures(pdevice, &gdevice.features);
-    
+
     ext_count : u32;
     vk.EnumerateDeviceExtensionProperties(pdevice, nil, &ext_count, nil);
     gdevice.extension_properties = make([]vk.ExtensionProperties, ext_count); // #Leak
@@ -114,7 +128,13 @@ query_physical_device :: proc(pdevice : vk.PhysicalDevice) -> Graphics_Device {
     gdevice.queue_family_properties = make([]vk.QueueFamilyProperties, queue_family_count);
     vk.GetPhysicalDeviceQueueFamilyProperties(pdevice, &queue_family_count, slice_to_multi_ptr(gdevice.queue_family_properties));
 
-    
+    gdevice.queue_family_surface_support = make([]bool, queue_family_count);
+    for i in 0..<queue_family_count {
+        value32 : b32;
+        vk.GetPhysicalDeviceSurfaceSupportKHR(pdevice, i, temp_surface, &value32);
+        gdevice.queue_family_surface_support[i] = cast(bool)value32;
+    }
+
 
     gdevice.vk_physical_device = pdevice;
 
@@ -133,15 +153,43 @@ query_physical_device :: proc(pdevice : vk.PhysicalDevice) -> Graphics_Device {
     gdevice.driver_version_raw = gdevice.props.driverVersion;
     gdevice.driver_version_string  = format_driver_version(cast(Vendor_Kind)gdevice.props.vendorID, gdevice.driver_version_raw);
 
+    depth_formats := []vk.Format {
+        .D32_SFLOAT,
+        .D32_SFLOAT_S8_UINT,
+        .D24_UNORM_S8_UINT,
+        .D16_UNORM,
+        .D16_UNORM_S8_UINT,
+    };
+
+    ok : bool;
+    gdevice.depth_format, ok = select_supported_format(depth_formats, .OPTIMAL, {.DEPTH_STENCIL_ATTACHMENT}, gdevice);
+    if !ok do panic("No suitable depth format found for device");
+
     return gdevice;
 }
 
 rate_graphics_device :: proc(gdevice : Graphics_Device) -> int {
     score := 0;
 
-    if (gdevice.props.deviceType == .DISCRETE_GPU) {
-        score += 1000;
+    type_scores := map[vk.PhysicalDeviceType]int {
+        .INTEGRATED_GPU = 500,
+        .DISCRETE_GPU = 1000,
+        .VIRTUAL_GPU = 100,
+        .CPU = 50,
+    };
+    for arg in os.args {
+        if arg == "prefer_integrated" do type_scores[.INTEGRATED_GPU] += 1000;
+        if arg == "prefer_discrete" do type_scores[.DISCRETE_GPU] += 1000;
+        if arg == "prefer_virtual" do type_scores[.VIRTUAL_GPU] += 1000;
+        if arg == "prefer_cpu" do type_scores[.CPU] += 1000;
+
+        if arg == "force_integrated" do type_scores[.INTEGRATED_GPU] = 9999999999;
+        if arg == "force_discrete" do type_scores[.DISCRETE_GPU] = 9999999999;
+        if arg == "force_virtual" do type_scores[.VIRTUAL_GPU] = 9999999999;
+        if arg == "force_cpu" do type_scores[.CPU] = 9999999999;
     }
+
+    score += type_scores[gdevice.props.deviceType];
 
     score += cast(int)gdevice.props.limits.maxImageDimension2D;
 

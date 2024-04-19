@@ -43,17 +43,16 @@ Descriptor_Set_Allocator :: struct {
 make_descriptor_pool :: proc(alloc : ^Descriptor_Set_Allocator) -> vk.DescriptorPool {
     using alloc.dc;
     buffers_size : vk.DescriptorPoolSize;
-    buffers_size.descriptorCount = cast(u32)alloc.num_buffers;
+    buffers_size.descriptorCount = cast(u32)alloc.num_buffers * DESCRIPTOR_SETS_PER_POOL;
     buffers_size.type = .UNIFORM_BUFFER;
     samplers_size : vk.DescriptorPoolSize;
-    samplers_size.descriptorCount = cast(u32)alloc.num_samplers;
+    samplers_size.descriptorCount = cast(u32)alloc.num_samplers * DESCRIPTOR_SETS_PER_POOL;
     samplers_size.type = .COMBINED_IMAGE_SAMPLER;
     storage_buffers_size : vk.DescriptorPoolSize;
-    storage_buffers_size.descriptorCount = cast(u32)alloc.num_storage_buffers;
+    storage_buffers_size.descriptorCount = cast(u32)alloc.num_storage_buffers * DESCRIPTOR_SETS_PER_POOL;
     storage_buffers_size.type = .STORAGE_BUFFER;
 
     sizes : [3]vk.DescriptorPoolSize;
-
     next : int;
 
     if alloc.num_buffers > 0 {
@@ -68,13 +67,12 @@ make_descriptor_pool :: proc(alloc : ^Descriptor_Set_Allocator) -> vk.Descriptor
         sizes[next] = storage_buffers_size;
         next += 1;
     }
-    
 
     the_pool : vk.DescriptorPool;
     pool_create : vk.DescriptorPoolCreateInfo;
     pool_create.sType = .DESCRIPTOR_POOL_CREATE_INFO;
     pool_create.maxSets = DESCRIPTOR_SETS_PER_POOL;
-    pool_create.pPoolSizes = slice_to_multi_ptr(sizes[:]);
+    pool_create.pPoolSizes = slice_to_multi_ptr(sizes[:next]);
     pool_create.poolSizeCount = cast(u32)next;
 
     if vk.CreateDescriptorPool(vk_device, &pool_create, nil, &the_pool) != .SUCCESS {
@@ -150,9 +148,7 @@ allocate_descriptor_set :: proc(alloc : ^Descriptor_Set_Allocator) -> (Descripto
         alloc_info.descriptorPool = alloc.pools[handle / DESCRIPTOR_SETS_PER_POOL];
         alloc_info.descriptorSetCount = 1;
         alloc_info.pSetLayouts = &alloc.layout;
-        if vk.AllocateDescriptorSets(vk_device, &alloc_info, &consumed.set) != .SUCCESS {
-            panic("Failed allocating descriptor set");
-        }
+        check_vk_result(vk.AllocateDescriptorSets(vk_device, &alloc_info, &consumed.set));
     }
     
     return handle, consumed.set;

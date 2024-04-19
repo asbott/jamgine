@@ -46,7 +46,7 @@ get_interp_color :: proc(color : Interp_Color, now : f32) -> lin.Vector4 {
     factor := passed/color.interp_duration;
 
     if factor <= 1 {
-        return math.lerp(color.start_color, color.target_color, factor);
+        return math.lerp(color.start_color, color.target_color, math.smoothstep(f32(0.0), f32(1.0), factor));
     }
     return color.target_color;
 }
@@ -169,6 +169,30 @@ get_absolute_pos :: proc(using ctx : ^Gui_Context, widget : ^Widget_State) -> li
 
     return origin + widget.pos;
 }
+adjust_pos_for_parent_scroll :: proc(using ctx : ^Gui_Context, parent : ^Widget_State, pos : ^lin.Vector2) {
+    parent_pos := get_absolute_pos(ctx, parent);
+
+    phs := parent.size/2;
+    pL, pR, pB, pT := parent_pos.x-phs.x, parent_pos.x+phs.x, parent_pos.y-phs.y, parent_pos.y+phs.y;
+    
+    min_scroll_x := pL - parent.last_content_min.x;
+    max_scroll_x := parent.last_content_max.x - pR;
+    min_scroll_y := pB - parent.last_content_min.y;
+    max_scroll_y := parent.last_content_max.y - pT;
+
+    
+    offset_left := pos.x - pL;
+    offset_content_left := pos.x - parent.last_content_min.x;
+    pos.x += offset_content_left - offset_left;
+    total_x_overflow := pL - parent.last_content_min.x + parent.last_content_max.x - pR;
+    pos.x -= total_x_overflow * parent.hscroll;
+
+    offset_bot := pos.y - pB;
+    offset_content_bot := pos.y - parent.last_content_min.y;
+    pos.y += offset_content_bot - offset_bot;
+    total_y_overflow := pB - parent.last_content_min.y + parent.last_content_max.y - pT;
+    pos.y -= total_y_overflow * parent.vscroll;
+}
 get_final_pos :: proc(using ctx : ^Gui_Context, widget : ^Widget_State) -> lin.Vector2 {
     if widget.parent == -1 {
         return widget.pos;
@@ -181,27 +205,7 @@ get_final_pos :: proc(using ctx : ^Gui_Context, widget : ^Widget_State) -> lin.V
     pos := parent_pos + widget.pos;
     hs := widget.size/2;
     if .ALLOW_OVERFLOW in parent.flags && .STICKY not_in widget.flags {
-    
-        phs := parent.size/2;
-        pL, pR, pB, pT := parent_pos.x-phs.x, parent_pos.x+phs.x, parent_pos.y-phs.y, parent_pos.y+phs.y;
-        
-        min_scroll_x := pL - parent.last_content_min.x;
-        max_scroll_x := parent.last_content_max.x - pR;
-        min_scroll_y := pB - parent.last_content_min.y;
-        max_scroll_y := parent.last_content_max.y - pT;
-
-        
-        offset_left := pos.x - pL;
-        offset_content_left := pos.x - parent.last_content_min.x;
-        pos.x += offset_content_left - offset_left;
-        total_x_overflow := pL - parent.last_content_min.x + parent.last_content_max.x - pR;
-        pos.x -= total_x_overflow * parent.hscroll;
-
-        offset_bot := pos.y - pB;
-        offset_content_bot := pos.y - parent.last_content_min.y;
-        pos.y += offset_content_bot - offset_bot;
-        total_y_overflow := pB - parent.last_content_min.y + parent.last_content_max.y - pT;
-        pos.y -= total_y_overflow * parent.vscroll;
+        adjust_pos_for_parent_scroll(ctx, parent, &pos);
     }
     
 
@@ -278,6 +282,9 @@ add_draw_command :: proc(using ctx : ^Gui_Context, cmd_variant : Any_Draw_Comman
     cmd.priority = priority;
     append(&ctx.draw_commands, cmd);
 }
+clear_frame :: proc(using ctx := active_ctx) {
+    clear(&ctx.draw_commands);
+} 
 draw :: proc(using ctx := active_ctx) {
     
     //fmt.println("\nunsorted");
@@ -295,6 +302,7 @@ draw :: proc(using ctx := active_ctx) {
         });
     }
     
+
     
     imm.begin2d();
     assert(len(imm.get_current_context().vertices) == 0);
@@ -324,7 +332,7 @@ draw :: proc(using ctx := active_ctx) {
         }
     }
     imm.flush();
-    clear(&ctx.draw_commands);
+    clear_frame();
 }
 
 Gui_Context :: struct {
@@ -381,6 +389,15 @@ Gui_Style :: struct {
     window_border_padding : f32,
     window_title_side_padding : f32,
     label_padding : f32,
+    button_inner_padding : f32,
+
+    default_spacing : f32,
+
+    separator_color : lin.Vector4,
+
+    checkbox_size : f32,
+    checkmark_width : f32,
+    checkmark_color : lin.Vector4,
 }
 Style_Vars :: struct {
     color_unfocused : lin.Vector4,
@@ -407,17 +424,23 @@ DEFAULT_GUI_STYLE :: Gui_Style {
     resize_color_hovered={0.9, 0.9, 0.9, 1.0},
     default_panel_size={200, 400},
     default_panel_child_size={100, 100},
-    color_shift_time=0.06,
+    color_shift_time=0.1,
     slider_thickness=16,
     handle_thickness=16,
     panel_shadow_width=8,
     scrollbar_width=16,
-    field_padding=8,
+    field_padding=4,
     widget_padding=8,
     title_bar_height=28,
     window_border_padding=8,
     window_title_side_padding=16,
     label_padding=4,
+    button_inner_padding=12,
+    default_spacing=12,
+    separator_color={0.8, 0.8, 0.8, 0.6},
+    checkbox_size=24,
+    checkmark_width=4,
+    checkmark_color={0.9, 0.9, 0.9, 1.0},
 }
 Gui_Input :: struct {
     key_states              : [glfw.KEY_LAST + 1]bool,
@@ -425,6 +448,7 @@ Gui_Input :: struct {
     last_key_states         : [glfw.KEY_LAST + 1]bool,
     last_button_states      : [glfw.MOUSE_BUTTON_LAST+1]bool,
     button_click_times      : [glfw.MOUSE_BUTTON_LAST+1]f32,
+    button_click_positions  : [glfw.MOUSE_BUTTON_LAST+1]lin.Vector2,
     last_mouse_scroll_total : lin.Vector2,
     mouse_scroll_total      : lin.Vector2,
     mouse_scroll_delta      : lin.Vector2,
@@ -442,7 +466,7 @@ Widget_Flag :: enum {
     ALLOW_HSCROLL,
 
     SLIDER, HANDLE, BUTTON, LABEL, TEXT_FIELD,
-    WINDOW,
+    WINDOW, DRAG,
 
     STICKY,
 
@@ -491,7 +515,12 @@ Widget_State :: struct {
 }
 Window_State :: struct {
     pen : lin.Vector2,
+    current_row_top : f32,
+    current_row_bot : f32,
     title : string,
+    columns : int,
+    current_column : int,
+    open_ptr : ^bool,
 }
 
 Text_Filter_Proc :: #type proc(char : rune) -> bool;
@@ -557,17 +586,21 @@ extract_id_and_label :: proc(label_id : string) -> (id : Widget_Id, label : stri
     return;
 }
 
-begin_window :: proc(named_id : string, using ctx := active_ctx) {
+begin_window :: proc(named_id : string, open_ptr : ^bool = nil, flags : Widget_Flags = {.WINDOW, .ALLOW_ACTIVE, .ALLOW_FOCUS, .ALLOW_HSCROLL, .ALLOW_VSCROLL, .ALLOW_MOVE, .ALLOW_OVERFLOW, .ALLOW_RESIZE}, using ctx := active_ctx) {
     id, title := extract_id_and_label(named_id);
 
-    begin_panel(id, {.WINDOW, .ALLOW_ACTIVE, .ALLOW_FOCUS, .ALLOW_HSCROLL, .ALLOW_VSCROLL, .ALLOW_MOVE, .ALLOW_OVERFLOW, .ALLOW_RESIZE}, ctx);
+    begin_panel(id, flags, ctx);
 
     {
-        w := &state.widgets[id];
-        w.window = Window_State{};
+        w := &state.widgets[id];        
+        if w.window == nil do w.window = Window_State{};
         window := &w.window.(Window_State);
         window.pen.x = -w.size.x/2 + style.window_border_padding;
         window.pen.y = w.size.y/2 - style.title_bar_height - style.window_border_padding;
+        window.current_row_top = window.pen.y;
+        window.current_row_bot = window.pen.y;
+        window.open_ptr = open_ptr;
+
         window.title = title;
         append(&state.window_id_stack, id); 
     }
@@ -585,24 +618,79 @@ end_window :: proc(using ctx := active_ctx) {
     title_size := text.measure(imm.get_current_context().default_font, window.title);
     label_raw(id + 110, {state.widgets[id].size.x/2 - title_size.x/2 - style.window_title_side_padding, 0}, window.title, ctx=ctx);
 
+    if window.open_ptr != nil {
+        side := style.title_bar_height - style.window_border_padding*2;
+        close_button_size := lin.Vector2{side, side};
+        if button_raw(id + 131, {-state.widgets[id].size.x/2 + style.window_title_side_padding + close_button_size.x/2 , 0}, close_button_size, text="x", ctx=ctx) {
+            window.open_ptr^ = false;
+        }
+    }
+
     end_panel(ctx);
+
+    invisible_panel_raw(id + 130, {0, window.pen.y - style.window_border_padding/2}, {state.widgets[id].size.x, style.window_border_padding}, ctx)
+
 
     end_panel(ctx);
     pop(&state.window_id_stack);
+}
+
+invisible_panel :: proc(str_id : string, size : lin.Vector2, using ctx := active_ctx) {
+    assert(len(state.window_id_stack) > 0, "Formatted widget call on window stack");
+    window_id := state.window_id_stack[len(state.window_id_stack)-1];
+    window := state.widgets[window_id].window.(Window_State);
+
+    id, _ := extract_id_and_label(str_id);
+    invisible_panel_raw(id, {window.pen.x + size.x/2, window.pen.y - size.y/2}, size, ctx);
+
+    move_pen_after_widget(size, ctx);
+}
+invisible_panel_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, using ctx := active_ctx) {
+
+    invisible_style : Style_Vars;
+    set_next_widget_style(invisible_style, ctx);
+    begin_panel(id, {.IGNORE_INPUT}, ctx);
+    set_widget_pos(pos.x, pos.y, ctx);
+    set_widget_size(size.x, size.y, ctx);
+    end_panel(ctx);
+}
+
+@(private)
+move_pen_after_widget :: proc(widget_size : lin.Vector2, using ctx := active_ctx) {
+    assert(len(state.window_id_stack) > 0, "Window stack is empty on formatted widget. Call begin_window() first.");
+
+    window_id := state.window_id_stack[len(state.window_id_stack)-1];
+    window := state.widgets[window_id].window.(Window_State);
+
+    window.current_row_bot = min(window.current_row_bot, window.pen.y - widget_size.y);
+    
+    if window.current_column >= window.columns {
+        window.current_column = 0;
+        window.pen.x = -state.widgets[window_id].size.x/2 + style.window_border_padding;
+        //window.pen.y -= widget_size.y + style.widget_padding;
+        window.pen.y = window.current_row_bot - style.widget_padding;
+        window.current_row_top = window.pen.y;
+    } else {
+        window.pen.y = window.current_row_top;
+        window.pen.x += state.widgets[window_id].size.x / f32(window.columns) - style.widget_padding;
+    }
+
+    window.current_column += 1;
+
+    w := &state.widgets[window_id];
+    w.window = window;
 }
 
 label :: proc(str : string, color := gfx.WHITE, using ctx := active_ctx) {
     assert(len(state.window_id_stack) > 0, "Window stack is empty on formatted widget. Call begin_window() first.");
 
     window_id := state.window_id_stack[len(state.window_id_stack)-1];
-    label_hash := cast(Widget_Id)hash.murmur64b(mem.byte_slice(builtin.raw_data(str), len(str)));
-    label_id := window_id * label_hash;
+    label_id, label_str := extract_id_and_label(str);
 
     window := state.widgets[window_id].window.(Window_State);
-    text_size := text.measure(imm.get_current_context().default_font, str);
-    label_raw(label_id, window.pen + {text_size.x/2, -text_size.y/2}, str, color, ctx=ctx);
-    window.pen.y -= text_size.y + style.widget_padding;
-    window.pen.x = -state.widgets[window_id].size.x/2 + style.window_border_padding;
+    text_size := text.measure(imm.get_current_context().default_font, label_str);
+    label_raw(label_id, window.pen + {text_size.x/2, -text_size.y/2}, label_str, color, ctx=ctx);
+    defer move_pen_after_widget(text_size, ctx);
 
     w := &state.widgets[window_id];
     w.window = window;
@@ -624,13 +712,19 @@ prepare_formatted_input_widget :: proc(label_id : string, using ctx : ^Gui_Conte
 
     field_size = lin.Vector2{state.widgets[window_id].size.x - style.window_border_padding * 2, imm.get_current_context().default_font.font_size + style.field_padding * 2};
 
+    if window.columns > 1 {
+        field_size.x /= f32(window.columns);
+        field_size.x -= style.widget_padding;
+    }
+
     if .VSCROLL_VISIBLE in state.widgets[window_id].state {
         field_size.x -= style.scrollbar_width;
     }
 
     label_size := text.measure(imm.get_current_context().default_font, label);
-    label_raw(id + 300, { 0, window.pen.y - label_size.y/2 }, label, ctx=ctx);
-    window.pen.y -= label_size.y + style.label_padding;
+    label_raw(id + 300, { window.pen.x + field_size.x/2, window.pen.y - label_size.y/2 }, label, ctx=ctx);
+
+    window.pen.y -= label_size.y + style.widget_padding;
 
     w := &state.widgets[window_id];
     w.window = window;
@@ -639,16 +733,6 @@ prepare_formatted_input_widget :: proc(label_id : string, using ctx : ^Gui_Conte
     add_next_widget_flags(widget_flags, ctx);
 
     return;
-}
-@(private)
-done_formatted_input_widget :: proc(field_size : lin.Vector2, using ctx : ^Gui_Context) {
-    window_id := state.window_id_stack[len(state.window_id_stack)-1];
-    window := state.widgets[window_id].window.(Window_State);
-    window.pen.y -= field_size.y + style.widget_padding;
-    window.pen.x = -state.widgets[window_id].size.x/2 + style.window_border_padding;
-
-    w := &state.widgets[window_id];
-    w.window = window;
 }
 
 // Will overwrite string ptr & len so if current value is dynamically allocated
@@ -674,44 +758,114 @@ text_field :: proc(label_id : string, value : ^string, placeholder := "enter tex
 
     if widget.builder == nil {
         widget.builder = new(strings.Builder);
-        strings.builder_init(widget.builder); // #Leak kinda not really
+        strings.builder_init(widget.builder); // #Leak
     }
 
-    defer done_formatted_input_widget(field_size, ctx);
+    value^ = strings.to_string(widget.builder^);
+
+    defer move_pen_after_widget(field_size, ctx);
     return text_field_raw(id, window.pen + {field_size.x/2, -field_size.y/2}, field_size, widget.builder, placeholder, filter_proc, ctx);
 }
 
 
 int_field :: proc(label_id : string, value : ^int, using ctx := active_ctx) -> bool {
     window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
-    defer done_formatted_input_widget(field_size, ctx);
+    defer move_pen_after_widget(field_size, ctx);
     return int_field_raw(id, state.widgets[window_id].window.(Window_State).pen + {field_size.x/2, -field_size.y/2}, field_size, value, ctx);
 }
 int_slider :: proc(label_id : string, value : ^int, min, max : int, using ctx := active_ctx) -> bool {
     window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
-    defer done_formatted_input_widget(field_size, ctx);
+    defer move_pen_after_widget(field_size, ctx);
     return int_slider_raw(id, state.widgets[window_id].window.(Window_State).pen + {field_size.x/2, -field_size.y/2}, field_size, value, min, max, ctx);
 }
 int_drag :: proc(label_id : string, value : ^int, min : Maybe(int) = nil, max : Maybe(int) = nil, rate : f32 = 1.0, using ctx := active_ctx) -> bool {
     window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
-    defer done_formatted_input_widget(field_size, ctx);
+    defer move_pen_after_widget(field_size, ctx);
     return int_drag_raw(id, state.widgets[window_id].window.(Window_State).pen + {field_size.x/2, -field_size.y/2}, field_size, value, min, max, rate, ctx);
 }
 
 f32_field :: proc(label_id : string, value : ^f32, using ctx := active_ctx) -> bool {
     window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
-    defer done_formatted_input_widget(field_size, ctx);
+    defer move_pen_after_widget(field_size, ctx);
     return f32_field_raw(id, state.widgets[window_id].window.(Window_State).pen + {field_size.x/2, -field_size.y/2}, field_size, value, ctx);
 }
 f32_slider :: proc(label_id : string, value : ^f32, min, max : f32, using ctx := active_ctx) -> bool {
     window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
-    defer done_formatted_input_widget(field_size, ctx);
+    defer move_pen_after_widget(field_size, ctx);
     return f32_slider_raw(id, state.widgets[window_id].window.(Window_State).pen + {field_size.x/2, -field_size.y/2}, field_size, value, min, max, ctx);
 }
 f32_drag :: proc(label_id : string, value : ^f32, min : Maybe(f32) = nil, max : Maybe(f32) = nil, rate : f32 = 0.5, using ctx := active_ctx) -> bool {
     window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
-    defer done_formatted_input_widget(field_size, ctx);
+    defer move_pen_after_widget(field_size, ctx);
     return f32_drag_raw(id, state.widgets[window_id].window.(Window_State).pen + {field_size.x/2, -field_size.y/2}, field_size, value, min, max, rate, ctx);
+}
+
+@(private)
+xvecn_field :: proc(label_id : string, value : ^[$N]$T, widget_proc : $P, using ctx := active_ctx) -> bool {
+    window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
+    defer move_pen_after_widget(field_size, ctx);
+    width_per := (field_size.x - style.widget_padding * (N-1)) / (N);
+    size := lin.Vector2{width_per, field_size.y};
+    any_changed : bool;
+    x := state.widgets[window_id].window.(Window_State).pen.x;
+    y := state.widgets[window_id].window.(Window_State).pen.y;
+    for i in 0..<N {
+        any_changed = any_changed || widget_proc(id + i*1000, lin.Vector2{x + (width_per + style.widget_padding) * f32(i), y} + {size.x/2, -size.y/2}, size, &value[i], ctx);
+    }
+    return any_changed;
+}
+@(private)
+xvecn_drag :: proc(label_id : string, value : ^[$N]$T, widget_proc : $P, min : Maybe(T) = nil, max : Maybe(T) = nil, rate : f32 = 1.0, using ctx := active_ctx) -> bool {
+    window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
+    defer move_pen_after_widget(field_size, ctx);
+    width_per := (field_size.x - style.widget_padding * (N-1)) / (N);
+    size := lin.Vector2{width_per, field_size.y};
+    any_changed : bool;
+    x := state.widgets[window_id].window.(Window_State).pen.x;
+    y := state.widgets[window_id].window.(Window_State).pen.y;
+    for i in 0..<N {
+        any_changed = any_changed || widget_proc(id + i*1000, lin.Vector2{x + (width_per + style.widget_padding) * f32(i), y} + {size.x/2, -size.y/2}, size, &value[i], min=min, max=max, rate=rate, ctx=ctx);
+    }
+    return any_changed;
+}
+@(private)
+xvecn_slider :: proc(label_id : string, value : ^[$N]$T, widget_proc : $P, min, max : T, using ctx := active_ctx) -> bool {
+    window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
+    defer move_pen_after_widget(field_size, ctx);
+    width_per := (field_size.x - style.widget_padding * (N-1)) / (N);
+    size := lin.Vector2{width_per, field_size.y};
+    any_changed : bool;
+    x := state.widgets[window_id].window.(Window_State).pen.x;
+    y := state.widgets[window_id].window.(Window_State).pen.y;
+    for i in 0..<N {
+        any_changed = any_changed || widget_proc(id + i*1000, lin.Vector2{x + (width_per + style.widget_padding) * f32(i), y} + {size.x/2, -size.y/2}, size, &value[i], min=min, max=max, ctx=ctx);
+    }
+    return any_changed;
+}
+
+f32vecn_field :: proc(label_id : string, value : ^[$N]f32, using ctx := active_ctx) -> bool {
+    return xvecn_field(label_id, value, f32_field_raw, ctx=ctx);
+}
+f32vec2_field :: proc(label_id : string, value : ^lin.Vector2, using ctx := active_ctx) -> bool {
+    return f32vecn_field(label_id, transmute(^[2]f32)(value), ctx=ctx);
+}
+f32vec3_field :: proc(label_id : string, value : ^lin.Vector3, using ctx := active_ctx) -> bool {
+    return f32vecn_field(label_id, transmute(^[3]f32)(value), ctx=ctx);
+}
+f32vec4_field :: proc(label_id : string, value : ^lin.Vector4, using ctx := active_ctx) -> bool {
+    return f32vecn_field(label_id, transmute(^[4]f32)(value), ctx=ctx);
+}
+f32vecn_drag :: proc(label_id : string, value : ^[$N]f32, min : Maybe(f32) = nil, max : Maybe(f32) = nil, rate : f32 = 0.5, using ctx := active_ctx) -> bool {
+    return xvecn_drag(label_id, value, f32_drag_raw, min, max, rate, ctx=ctx);
+}
+f32vec2_drag :: proc(label_id : string, value : ^lin.Vector2, min : Maybe(f32) = nil, max : Maybe(f32) = nil, rate : f32 = 0.5, using ctx := active_ctx) -> bool {
+    return f32vecn_drag(label_id, transmute(^[2]f32)(value), min, max, rate, ctx=ctx);
+}
+f32vec3_drag :: proc(label_id : string, value : ^lin.Vector3, min : Maybe(f32) = nil, max : Maybe(f32) = nil, rate : f32 = 0.5, using ctx := active_ctx) -> bool {
+    return f32vecn_drag(label_id, transmute(^[3]f32)(value), min, max, rate, ctx=ctx);
+}
+f32vec4_drag :: proc(label_id : string, value : ^lin.Vector4, min : Maybe(f32) = nil, max : Maybe(f32) = nil, rate : f32 = 0.5, using ctx := active_ctx) -> bool {
+    return f32vecn_drag(label_id, transmute(^[4]f32)(value), min, max, rate, ctx=ctx);
 }
 
 button :: proc(label_id : string, using ctx := active_ctx) -> bool {
@@ -723,17 +877,96 @@ button :: proc(label_id : string, using ctx := active_ctx) -> bool {
 
     widget := &state.widgets[id];
 
+    
     label_size := text.measure(imm.get_current_context().default_font, label);
-    button_size := label_size + {style.field_padding, style.field_padding};
+    button_size := lin.Vector2{state.widgets[window_id].size.x - style.window_border_padding * 2, label_size.y + style.button_inner_padding};
+    if window.columns > 1 {
+        button_size.x /= f32(window.columns);
+        button_size.x -= style.widget_padding;
+    }
 
     result := button_raw(id, window.pen + {button_size.x/2,-button_size.y/2}, button_size, label, gfx.WHITE, ctx);
-
-    window.pen.y -= button_size.y + style.widget_padding;
 
     w := &state.widgets[window_id];
     w.window = window;
 
+    move_pen_after_widget(button_size + {style.widget_padding, 0}, ctx);
+
     return result;
+}
+checkbox :: proc(label_id : string, value : ^bool, using ctx := active_ctx) -> bool {
+    assert(len(state.window_id_stack) > 0, "Window stack is empty on formatted widget. Call begin_window() first.");
+    window_id, id, field_size := prepare_formatted_input_widget(label_id, ctx);
+
+    window := state.widgets[window_id].window.(Window_State);
+
+    checkbox_size := lin.Vector2{style.checkbox_size, style.checkbox_size};
+
+    result := checkbox_raw(id, window.pen + { field_size.x/2,-checkbox_size.y/2 }, checkbox_size, value, ctx);
+
+    move_pen_after_widget(field_size + {style.widget_padding, 0}, ctx);
+
+    return result;
+}
+
+columns :: proc(n : int, using ctx := active_ctx) {
+    assert(len(state.window_id_stack) > 0, "Window stack is empty on formatted widget. Call begin_window() first.");
+    window_id := state.window_id_stack[len(state.window_id_stack)-1];
+    window := state.widgets[window_id].window.(Window_State);
+
+    window.columns = n;
+    
+    w := &state.widgets[window_id];
+    w.window = window;
+
+    if window.current_column > window.columns {
+        move_pen_after_widget({1, window.pen.y - window.current_row_bot}, ctx);
+        window.current_column = 0;
+    }
+}
+
+spacing :: proc(amount : f32 = -1, using ctx := active_ctx) {
+    assert(len(state.window_id_stack) > 0, "Window stack is empty on formatted widget. Call begin_window() first.");
+    window_id := state.window_id_stack[len(state.window_id_stack)-1];
+    window := state.widgets[window_id].window.(Window_State);
+
+    amount := amount;
+    if amount == -1 {
+        amount = style.default_spacing;
+    }
+
+    window.pen.y -= amount;
+
+    move_pen_after_widget({0, amount}, ctx);
+
+    w := &state.widgets[window_id];
+    w.window = window;
+}
+
+separator :: proc(using ctx := active_ctx) {
+    assert(len(state.window_id_stack) > 0, "Window stack is empty on formatted widget. Call begin_window() first.");
+    window_id := state.window_id_stack[len(state.window_id_stack)-1];
+    
+    {
+        window := state.widgets[window_id].window.(Window_State);
+        // #Incomplete #Limitation
+        // Need to handle vertical separators if we're doing columns
+        spacing(ctx=ctx);
+    }
+
+    {
+        window := state.widgets[window_id].window.(Window_State);
+        window_pos := get_final_pos(ctx, &state.widgets[window_id]);
+        cmd : Draw_Command_Line;
+        cmd.a = window_pos + {window.pen.x - state.widgets[window_id].size.x/2 + style.window_border_padding, window.pen.y};
+        cmd.b = window_pos + {state.widgets[window_id].size.x/2 - style.window_border_padding, window.pen.y};
+        adjust_pos_for_parent_scroll(ctx, &state.widgets[window_id], &cmd.a);
+        adjust_pos_for_parent_scroll(ctx, &state.widgets[window_id], &cmd.b);
+        cmd.color = style.separator_color;
+        add_draw_command(ctx, cmd, get_widget_priority(ctx, &state.widgets[window_id]));
+        move_pen_after_widget({0, 1}, ctx);
+    }
+    spacing(style.widget_padding, ctx);
 }
 
 begin_panel :: proc(id : int, flags : Widget_Flags, using ctx := active_ctx) {
@@ -768,7 +1001,6 @@ begin_panel :: proc(id : int, flags : Widget_Flags, using ctx := active_ctx) {
 
     widget.style = ctx.state.next_style_vars;
     ctx.state.next_style_vars = style.panel;
-
     
     {
         //L, R, B, T := get_widget_functional_bounds(ctx, widget);
@@ -946,6 +1178,9 @@ end_panel :: proc(using ctx := active_ctx) {
     }
 
     widget := &state.widgets[id];
+
+    
+
     widget.begin_active = false;
     window_size := gfx.get_window_size();
     if widget.parent != -1 {
@@ -1049,6 +1284,23 @@ label_raw :: proc(id : int, pos : lin.Vector2, str : string, color := gfx.WHITE,
     // #Limitation #Incomplete this locks us into using default font in imm
     text_size := text.measure(imm.get_current_context().default_font, str);
 
+    if len(state.id_stack) <= 0 do return;
+
+    parent_id := state.id_stack[len(state.id_stack)-1];
+    parent := &state.widgets[parent_id];
+
+    parent_pos := get_final_pos(ctx, parent);
+
+    {
+        cmd : Draw_Command_Text;
+        cmd.text = str;
+        cmd.color = color;
+        cmd.pos = parent_pos + pos;
+        adjust_pos_for_parent_scroll(ctx, parent, &cmd.pos);
+        add_draw_command(ctx, cmd);
+    }
+
+    /*
     // Zero colors
     label_panel_style : Style_Vars;
     set_next_widget_style(label_panel_style);
@@ -1067,7 +1319,7 @@ label_raw :: proc(id : int, pos : lin.Vector2, str : string, color := gfx.WHITE,
     cmd.text = str;
     add_draw_command(ctx, cmd);
 
-    end_panel(ctx);
+    end_panel(ctx);*/
 }
 
 button_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, text : string, text_color := gfx.WHITE, using ctx := active_ctx) -> bool {
@@ -1079,6 +1331,46 @@ button_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, text : strin
     clicked := is_widget_clicked(ctx);
     
     label_raw(id+30, {}, text, color=text_color, ctx=ctx);
+
+    end_panel(ctx);
+
+    return clicked;
+}
+checkbox_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^bool, using ctx := active_ctx) -> bool {
+
+    begin_panel(id, {.ALLOW_ACTIVE, .ALLOW_FOCUS, .BUTTON}, ctx);
+    set_widget_pos(pos.x, pos.y, ctx);
+    set_widget_size(size.x, size.y, ctx);
+
+    clicked := is_widget_clicked(ctx);
+    if clicked {
+        value^ = !value^;
+    }
+
+    if value^ {
+        /*cmd : Draw_Command_Rect;
+        cmd.pos = get_widget_pos(ctx);
+        cmd.size = get_widget_size(ctx);
+        cmd.color = gfx.WHITE;
+        add_draw_command(ctx, cmd);*/
+
+        visual_pos := get_final_pos(ctx, &state.widgets[id]);
+
+        // Classic checkmark shape
+        p1 := visual_pos + lin.Vector2{-size.x/2 + style.field_padding, 0};
+        p2 := visual_pos + lin.Vector2{0, -size.y/2 + style.field_padding};
+        p3 := visual_pos + lin.Vector2{size.x/2 - style.field_padding, size.y/2 - style.field_padding};
+
+        cmd : Draw_Command_Line;
+        cmd.color = style.checkmark_color;
+
+        cmd.a = p1;
+        cmd.b = p2;
+        add_draw_command(ctx, cmd);
+        cmd.a = p2;
+        cmd.b = p3;
+        add_draw_command(ctx, cmd);
+    }
 
     end_panel(ctx);
 
@@ -1289,7 +1581,7 @@ int_field_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^
     }
 
     if text_field_raw(id, pos, size, widget.builder, "", proc(char : rune) -> bool {
-        return unicode.is_digit(char);
+        return unicode.is_digit(char) || char == '-';
     }, ctx) {
         str := strings.to_string(widget.builder^);
         if str != "" {
@@ -1326,15 +1618,16 @@ f32_field_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^
     }
 
     if text_field_raw(id, pos, size, widget.builder, "", proc(char : rune) -> bool {
-        return unicode.is_digit(char) || char == '.';
+        return unicode.is_digit(char) || char == '.' || char == '-';
     }, ctx) {
         str := strings.to_string(widget.builder^);
         if str != "" {
-            parse_ok : bool;
-            value^, parse_ok = strconv.parse_f32(str);
-            assert(parse_ok, "Parse fail");
+            new_value, parse_ok := strconv.parse_f32(str);
+            if parse_ok {
+                value^ = new_value;
+                return true;
+            }
         }
-        return true;
     }
     return false;
 }
@@ -1348,7 +1641,8 @@ int_slider_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : 
     field_size := lin.Vector2{field_text_size.x + style.field_padding * 2, fnt.font_size + style.field_padding*2};
     field_pos := lin.Vector2{pos.x + size.x/2 - field_size.x/2, pos.y};
     add_next_widget_flags({.FOCUS_REQUIRES_DOUBLE_CLICK}, ctx);
-    int_field_raw(id, field_pos, field_size, value, ctx);
+    
+    int_drag_raw(id, field_pos, field_size, value, rate=math.max(f32(max-min)/1000, 1.0), ctx=ctx);
     
     safe_space := style.widget_padding;
 
@@ -1372,7 +1666,7 @@ f32_slider_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : 
     field_size := lin.Vector2{field_text_size.x + style.field_padding * 2, fnt.font_size + style.field_padding*2};
     field_pos := lin.Vector2{pos.x + size.x/2 - field_size.x/2, pos.y};
     add_next_widget_flags({.FOCUS_REQUIRES_DOUBLE_CLICK}, ctx);
-    f32_field_raw(id, field_pos, field_size, value, ctx);
+    f32_drag_raw(id, field_pos, field_size, value, rate=(max-min)/1000, ctx=ctx);
     
     safe_space := style.widget_padding;
 
@@ -1389,7 +1683,7 @@ f32_slider_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : 
 
 int_drag_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^int, min : Maybe(int) = nil, max : Maybe(int) = nil, rate : f32 = 1.0, using ctx := active_ctx) -> bool {
 
-    add_next_widget_flags({.FOCUS_REQUIRES_DOUBLE_CLICK}, ctx);
+    add_next_widget_flags({.FOCUS_REQUIRES_DOUBLE_CLICK, .DRAG}, ctx);
     result := int_field_raw(id, pos, size, value, ctx);
     
     widget := &state.widgets[id];
@@ -1408,7 +1702,7 @@ int_drag_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^i
 
 f32_drag_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^f32, min : Maybe(f32) = nil, max : Maybe(f32) = nil, rate : f32 = 0.5, using ctx := active_ctx) -> bool {
 
-    add_next_widget_flags({.FOCUS_REQUIRES_DOUBLE_CLICK}, ctx);
+    add_next_widget_flags({.FOCUS_REQUIRES_DOUBLE_CLICK, .DRAG}, ctx);
     result := f32_field_raw(id, pos, size, value, ctx);
     
     widget := &state.widgets[id];
@@ -1427,8 +1721,16 @@ f32_drag_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^f
 
 is_widget_clicked :: proc(using ctx := active_ctx, mb : c.int = glfw.MOUSE_BUTTON_LEFT) -> bool {
     if len(state.id_stack) <= 0 do return false;
+    id := state.id_stack[len(state.id_stack)-1];
+    widget := &state.widgets[id];
 
-    return is_widget_hovered(ctx) && is_mouse_clicked(ctx=ctx);
+    return is_widget_hovered(ctx) && is_mouse_clicked(ctx=ctx) && last_state.hovered_id == id && .ACTIVE in widget.state;
+}
+is_widget_double_clicked :: proc(using ctx := active_ctx, mb : c.int = glfw.MOUSE_BUTTON_LEFT) -> bool {
+    if len(state.id_stack) <= 0 do return false;
+
+    last_pos := input.button_click_positions[mb];
+    return is_pos_in_widget_rect(last_pos) && is_widget_clicked(ctx) && is_mouse_double_clicked(ctx=ctx);
 }
 is_widget_held :: proc(using ctx := active_ctx, mb : c.int = glfw.MOUSE_BUTTON_LEFT) -> bool {
     if len(state.id_stack) <= 0 do return false;
@@ -1554,6 +1856,7 @@ new_frame :: proc(using ctx := active_ctx) {
     for _,button in button_states {
         if last_button_states[button] && !button_states[button] {
             button_click_times[button] = get_time(ctx);
+            button_click_positions[button] = mouse_pos;
         }
     }
 
@@ -1749,6 +2052,8 @@ update :: proc(delta_time : f32, using ctx := active_ctx) {
     if state.hovered_id != -1 {
         hovered := &state.widgets[state.hovered_id];
 
+        if .DRAG in hovered.flags do state.cursor = gfx.CURSOR_HRESIZE; 
+
         if .CAPTURES_TEXT in hovered.flags {
             if .FOCUS_REQUIRES_DOUBLE_CLICK not_in hovered.flags || .FOCUSED in hovered.state {
                 state.cursor = gfx.CURSOR_IBEAM;
@@ -1756,6 +2061,7 @@ update :: proc(delta_time : f32, using ctx := active_ctx) {
         }
 
         if .BUTTON in hovered.flags do state.cursor = gfx.CURSOR_HAND;
+
 
         SCROLL_SPEED :: 50;
         content_size_x := hovered.content_max.x - hovered.content_min.x;
@@ -1783,7 +2089,9 @@ update :: proc(delta_time : f32, using ctx := active_ctx) {
             state.active_id = state.hovered_id;
         }
 
-        if .ALLOW_FOCUS in hovered.flags && (is_mouse_clicked(ctx=ctx) if (.FOCUS_REQUIRES_DOUBLE_CLICK not_in hovered.flags) else (is_mouse_double_clicked(ctx=ctx))) {
+        last_pos := input.button_click_positions[glfw.MOUSE_BUTTON_LEFT];
+        L, R, B, T := get_widget_visual_bounds(ctx, hovered);
+        if .ALLOW_FOCUS in hovered.flags && (is_mouse_clicked(ctx=ctx) if (.FOCUS_REQUIRES_DOUBLE_CLICK not_in hovered.flags) else (is_mouse_double_clicked(ctx=ctx) && last_pos.x >= L && last_pos.x < R && last_pos.y >= B && last_pos.y < T)) {
             state.focused_id = state.hovered_id;
         }
     }
@@ -1865,11 +2173,22 @@ update :: proc(delta_time : f32, using ctx := active_ctx) {
 is_mouse_clicked :: proc(mb : c.int = glfw.MOUSE_BUTTON_LEFT, using ctx := active_ctx) -> bool {
     return input.last_button_states[glfw.MOUSE_BUTTON_LEFT] && !input.button_states[glfw.MOUSE_BUTTON_LEFT];
 }
+is_pos_in_widget_rect :: proc(pos : lin.Vector2, using ctx := active_ctx) -> bool {
+    if len(state.id_stack) <= 0 do return false;
+
+    wid := state.id_stack[len(state.id_stack)-1];
+    widget := &state.widgets[wid];
+
+    L, R, B, T := get_widget_visual_bounds(ctx, widget);
+
+    return pos.x >= L && pos.x < R && pos.y >= B && pos.y < T;
+}
 is_mouse_double_clicked :: proc(mb : c.int = glfw.MOUSE_BUTTON_LEFT, using ctx := active_ctx) -> bool {
     now := get_time(ctx);
     last_time := input.button_click_times[mb];
     time_since := now - last_time;
     DOUBLE_CLICK_TIME :: 0.3; // #Magic
+    
     return time_since < DOUBLE_CLICK_TIME && is_mouse_clicked(mb, ctx);
 }
 

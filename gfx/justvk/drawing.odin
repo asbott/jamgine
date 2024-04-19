@@ -24,6 +24,10 @@ Render_Target :: struct {
     draw_done_fence : vk.Fence,
 
     width, height : int,
+
+    depth_image : vk.Image,
+    depth_memory : Device_Memory_Handle,
+    depth_view : vk.ImageView,
 }
 
 Bind_Record :: struct {
@@ -60,6 +64,8 @@ Pipeline :: struct {
     wait_stages : [dynamic]vk.PipelineStageFlags,
 
     render_pass : Render_Pass,
+
+    has_depth_test : bool,
 }
 
 Render_Pass :: struct {
@@ -68,14 +74,15 @@ Render_Pass :: struct {
     format : vk.Format,
 }
 
-make_render_target :: proc(width, height : int, images : []vk.Image, format : vk.Format, standard_layout : vk.ImageLayout, layout : vk.ImageLayout, using dc := target_dc) -> Render_Target {
+make_render_target :: proc(width, height : int, images : []vk.Image, format : vk.Format, standard_layout : vk.ImageLayout, layout : vk.ImageLayout, use_depth_attachment := false, using dc := target_dc) -> Render_Target {
 
     assert(len(images) > 0);
-    num_attachments := len(images);
+    num_color_attachments := len(images);
+    num_attachemnts := num_color_attachments + (1 if use_depth_attachment else 0);
 
     render_target : Render_Target;
     render_target.target_images = slice.clone(images);
-    render_target.image_views = make([]vk.ImageView, num_attachments);
+    render_target.image_views = make([]vk.ImageView, num_attachemnts);
     render_target.render_layout = layout;
     render_target.standard_layout = standard_layout;
     render_target.dc = dc;
@@ -102,8 +109,49 @@ make_render_target :: proc(width, height : int, images : []vk.Image, format : vk
             panic("Failed creating image view"); // TODO : errors
         }
     }
+    if use_depth_attachment {
+        image_info : vk.ImageCreateInfo;
+        image_info.sType = .IMAGE_CREATE_INFO;
+        image_info.imageType = .D2;
+        image_info.extent.width = cast(u32)width;
+        image_info.extent.height = cast(u32)height;
+        image_info.extent.depth = 1;
+        image_info.mipLevels = 1;
+        image_info.arrayLayers = 1;
+        image_info.format = graphics_device.depth_format;
+        image_info.tiling = .OPTIMAL;
+        image_info.initialLayout = .UNDEFINED;
+        image_info.usage = {.DEPTH_STENCIL_ATTACHMENT};
+        image_info.sharingMode = .EXCLUSIVE;
+        image_info.samples = {._1};
+        image_info.flags = {};
+        if vk.CreateImage(vk_device, &image_info, nil, &render_target.depth_image) != .SUCCESS {
+            panic("Failed to create depth image");
+        }
 
-    render_target.render_pass = make_render_pass(format, standard_layout, layout, num_attachments, dc=dc);
+        render_target.depth_memory = request_and_bind_device_memory(render_target.depth_image, {.DEVICE_LOCAL}, dc);
+
+        view_info : vk.ImageViewCreateInfo;
+        view_info.sType = .IMAGE_VIEW_CREATE_INFO;
+        view_info.image = render_target.depth_image;
+        view_info.viewType = .D2;
+        view_info.format = graphics_device.depth_format;
+        view_info.subresourceRange.aspectMask = {.DEPTH};
+        view_info.subresourceRange.baseMipLevel = 0;
+        view_info.subresourceRange.levelCount = 1;
+        view_info.subresourceRange.baseArrayLayer = 0;
+        view_info.subresourceRange.layerCount = 1;
+
+        if vk.CreateImageView(vk_device, &view_info, nil, &render_target.depth_view) != .SUCCESS {
+            panic("Failed to create depth texture image view");
+        }
+
+        render_target.image_views[num_color_attachments] = render_target.depth_view;
+
+        transition_image_layout(render_target.depth_image, graphics_device.depth_format, .UNDEFINED, .DEPTH_STENCIL_ATTACHMENT_OPTIMAL, {.DEPTH}, dc=dc);
+    }
+
+    render_target.render_pass = make_render_pass(format, standard_layout, layout, num_color_attachments, use_depth_attachment = use_depth_attachment, dc=dc);
 
     framebuffer_info : vk.FramebufferCreateInfo;
     framebuffer_info.sType = .FRAMEBUFFER_CREATE_INFO;
@@ -174,6 +222,13 @@ destroy_render_target :: proc(render_target : Render_Target) {
     for img_view in render_target.image_views {
         vk.DestroyImageView(vk_device, img_view, nil);
     }
+
+    if render_target.depth_image != 0 {
+        // depth_image already destroyed in image_views
+        vk.DestroyImage(vk_device, render_target.depth_image, nil);
+        free_device_memory(render_target.depth_memory);
+    }
+
     delete(render_target.image_views);
     delete(render_target.target_images);
 }
@@ -188,7 +243,7 @@ make_shader_stage :: proc(module : Shader_Module) -> vk.PipelineShaderStageCreat
     return create_info;
 }
 
-make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, using dc := target_dc) -> ^Pipeline {
+make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, enable_depth_test : bool = false, using dc := target_dc) -> ^Pipeline {
     
     p := new(Pipeline);
     p.program = program;
@@ -197,7 +252,7 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, using
     p.wait_semaphores = make([dynamic]vk.Semaphore);
     p.wait_stages = make([dynamic]vk.PipelineStageFlags);
     p.render_pass = render_pass;
-    
+    p.has_depth_test = enable_depth_test;
 
     vertex_layout := program.vertex_input_layout;
     
@@ -223,10 +278,10 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, using
     input_assembly.topology = .TRIANGLE_LIST;
     input_assembly.primitiveRestartEnable = false;
     
-    dynamic_states : []vk.DynamicState = {.VIEWPORT, .SCISSOR};
+    dynamic_states : []vk.DynamicState = {.VIEWPORT, .SCISSOR, .DEPTH_TEST_ENABLE, .DEPTH_WRITE_ENABLE};
     dynamic_state_info : vk.PipelineDynamicStateCreateInfo;
     dynamic_state_info.sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state_info.dynamicStateCount = cast(u32)len(dynamic_states);
+    dynamic_state_info.dynamicStateCount = cast(u32)len(dynamic_states) if enable_depth_test else 2;
     dynamic_state_info.pDynamicStates = slice_to_multi_ptr(dynamic_states);
     
 
@@ -320,6 +375,18 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, using
     blending.blendConstants[2] = 0.0;
     blending.blendConstants[3] = 0.0;
 
+    depth_state : vk.PipelineDepthStencilStateCreateInfo;
+    depth_state.sType = .PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_state.depthTestEnable = cast(b32)enable_depth_test;
+    depth_state.depthWriteEnable = cast(b32)enable_depth_test;
+    depth_state.depthCompareOp = .LESS if enable_depth_test else .ALWAYS;
+    depth_state.depthBoundsTestEnable = false;
+    depth_state.minDepthBounds = 0.0;
+    depth_state.maxDepthBounds = 1.0;
+    depth_state.stencilTestEnable = false;
+    depth_state.front = {};
+    depth_state.back = {};
+
     layout_info : vk.PipelineLayoutCreateInfo;
     layout_info.sType = .PIPELINE_LAYOUT_CREATE_INFO;
     layout_info.setLayoutCount = 1;
@@ -362,6 +429,7 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, using
     pipeline_info.subpass = 0;
     pipeline_info.basePipelineHandle = 0;
     pipeline_info.basePipelineIndex = -1;
+    pipeline_info.pDepthStencilState = &depth_state;
     if vk.CreateGraphicsPipelines(vk_device, 0, 1, &pipeline_info, nil, &p.vk_pipeline) != .SUCCESS {
         panic("Failed creating pipeline");
     }
@@ -415,8 +483,13 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, using
                 write_descriptor(p, db.location, arr_index, .UNIFORM_BUFFER, nil, &null_ubo.desc_info);
                 record.bound_resources[arr_index] = null_ubo;
             } else if type == .COMBINED_IMAGE_SAMPLER {
-                write_descriptor(p, db.location, arr_index, .COMBINED_IMAGE_SAMPLER, &null_texture_rgba.desc_info, nil);
-                record.bound_resources[arr_index] = null_texture_rgba;
+                write_descriptor(p, db.location, arr_index, .COMBINED_IMAGE_SAMPLER, &null_texture_srgb.desc_info, nil);
+                record.bound_resources[arr_index] = null_texture_srgb;
+            } else if type == .STORAGE_BUFFER {
+                write_descriptor(p, db.location, arr_index, .STORAGE_BUFFER, nil, &null_sbo.desc_info);
+                record.bound_resources[arr_index] = null_sbo;
+            } else {
+                panic("Unhandled descriptor type");
             }
         }
     }
@@ -527,7 +600,7 @@ bind_texture :: proc(pipeline : ^Pipeline, texture : Texture, binding_location :
     }
 }
 
-transition_image_layout :: proc(image : vk.Image, format : vk.Format, old_layout : vk.ImageLayout, new_layout : vk.ImageLayout, signal_semaphore : vk.Semaphore = 0, using dc : ^Device_Context = target_dc) {
+transition_image_layout :: proc(image : vk.Image, format : vk.Format, old_layout : vk.ImageLayout, new_layout : vk.ImageLayout, aspect : vk.ImageAspectFlags, signal_semaphore : vk.Semaphore = 0, using dc : ^Device_Context = target_dc) {
     command_buffer := begin_single_use_command_buffer(dc);
 
     barrier : vk.ImageMemoryBarrier;
@@ -537,7 +610,7 @@ transition_image_layout :: proc(image : vk.Image, format : vk.Format, old_layout
     barrier.srcQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = vk.QUEUE_FAMILY_IGNORED;
     barrier.image = image;
-    barrier.subresourceRange.aspectMask = {.COLOR};
+    barrier.subresourceRange.aspectMask = aspect;
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
@@ -566,6 +639,9 @@ transition_image_layout :: proc(image : vk.Image, format : vk.Format, old_layout
         } else if layout == .TRANSFER_SRC_OPTIMAL {
             access = {.TRANSFER_READ};
             stage = {.TRANSFER};
+        } else if layout == .DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
+            access = {.DEPTH_STENCIL_ATTACHMENT_WRITE, .DEPTH_STENCIL_ATTACHMENT_READ};
+            stage = {.EARLY_FRAGMENT_TESTS};        
         } else {
             panic(fmt.tprintf("Unhandled image layout '%s' for transitioning\n", layout))
         }
@@ -582,7 +658,7 @@ transition_image_layout :: proc(image : vk.Image, format : vk.Format, old_layout
 
 
 
-begin_draw :: proc(pipeline : ^Pipeline, target : Render_Target) {
+begin_draw :: proc(pipeline : ^Pipeline, target : Render_Target, write_depth := true, test_depth := true) {
     assert(!pipeline.active, "Pipeline begin/end mismatch; begin_draw was called when pipeline is already active.");
     using pipeline.dc;
 
@@ -654,6 +730,11 @@ begin_draw :: proc(pipeline : ^Pipeline, target : Render_Target) {
     scissor.extent = { cast(u32)target.width, cast(u32)target.height };
     vk.CmdSetViewport(pipeline.command_buffer, 0, 1, &viewport);
     vk.CmdSetScissor(pipeline.command_buffer, 0, 1, &scissor);
+
+    if pipeline.has_depth_test {
+        vk.CmdSetDepthTestEnable(pipeline.command_buffer, pipeline.current_target.depth_image != 0 && test_depth != false);
+        vk.CmdSetDepthWriteEnable(pipeline.command_buffer, pipeline.current_target.depth_image != 0 && write_depth != false);
+    }
 }
 end_draw :: proc(pipeline : ^Pipeline, wait_sem : vk.Semaphore = 0) {
     assert(pipeline.active, "Pipeline begin/end mismatch; end_draw was called before begin_draw");
@@ -739,8 +820,14 @@ cmd_clear :: proc(pipeline : ^Pipeline, clear_mask : vk.ImageAspectFlags = { .CO
 
     clear_info : vk.ClearAttachment;
     clear_info.aspectMask = clear_mask;
-    clear_info.colorAttachment = 0;
-    clear_info.clearValue.color = transmute(vk.ClearColorValue)clear_color;
+    clear_info.colorAttachment = 0; // #Limitation
+
+    if .COLOR in clear_mask {
+        clear_info.clearValue.color = transmute(vk.ClearColorValue)clear_color;
+    } else {
+        clear_info.clearValue.depthStencil = {depth=1.0, stencil=0};
+    }
+
     vk.CmdClearAttachments(pipeline.command_buffer, 1, &clear_info, 1, &vk_clear_rect);
 }
 

@@ -93,24 +93,59 @@ draw_game :: proc() -> bool {
             f32_value : f32;
             igui.f32_drag("Float drag", &f32_value);
         }
+        igui.columns(2);
+        {
+            @(static)
+            vec2_value : lin.Vector2;
+            igui.f32vec2_drag("Vector2 drag", &vec2_value, -1.0, 1.0);
+        }
+        {
+            @(static)
+            vec3_value : lin.Vector3;
+            igui.f32vec3_field("Vector3 field", &vec3_value);
+        }
+        igui.columns(1);
+        {
+            @(static)
+            vec4_value : lin.Vector4;
+            igui.f32vec4_drag("Vector4 drag", &vec4_value);
+        }
         {
             @(static)
             toggle : bool;
+
+            igui.columns(2);
             if igui.button("Press Me") {
                 toggle = true;
             }
+            if igui.button("Reset") {
+                toggle = false;
+            }
+            igui.columns(1);
             if toggle {
                 igui.label("Thanks!");
             } else {
                 igui.label("Do what he says please ^");
             }
-            if igui.button("Reset") {
-                toggle = false;
+            
+        }
+        {
+            NUM_COLUMNS :: 10;
+            NUM_TOGGLES :: NUM_COLUMNS * 4
+            igui.columns(NUM_COLUMNS);
+
+            @(static)
+            toggles :[]bool; 
+            if toggles == nil do toggles = make([]bool, NUM_TOGGLES);
+
+            for _, i in toggles {
+                igui.checkbox(fmt.tprintf("V%i", i), &toggles[i]);
             }
+
+            igui.columns(1);
         }
         
         igui.end_window();
-
     }
 
     {

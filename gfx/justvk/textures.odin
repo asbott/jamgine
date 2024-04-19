@@ -53,9 +53,9 @@ DEFAULT_SAMPLER_SETTINGS :: Sampler_Settings {
 texture_format_to_vk_format :: proc(format : Texture_Format) -> vk.Format {
     switch format {
         case .SR: return .R8_SRGB;
-        case .SRG: return .R8_SRGB;
-        case .SRGB: return .R8_SRGB;
-        case .SRGBA: return .R8_SRGB;
+        case .SRG: return .R8G8_SRGB;
+        case .SRGB: return .R8G8B8_SRGB;
+        case .SRGBA: return .R8G8B8A8_SRGB;
 
         case .R_UNORM: return .R8_UNORM;
         case .RG_UNORM: return .R8G8_UNORM;
@@ -91,7 +91,8 @@ count_vk_format_channels :: proc(format : vk.Format) -> int {
         case .R8_SINT, .R8_UINT, .R8_SNORM, .R8_UNORM, .R8_SRGB, .R8_SSCALED, .R8_USCALED,
              .R16_SFLOAT, .R16_SINT, .R16_UINT, .R16_SNORM, .R16_UNORM, .R16_SSCALED, .R16_USCALED,
              .R32_SFLOAT, .R32_SINT, .R32_UINT,
-             .R64_SFLOAT, .R64_SINT, .R64_UINT:
+             .R64_SFLOAT, .R64_SINT, .R64_UINT,
+             .D32_SFLOAT, .D32_SFLOAT_S8_UINT, .D16_UNORM:
             return 1;
         case .R8G8_SINT, .R8G8_UINT, .R8G8_SNORM, .R8G8_UNORM, .R8G8_SRGB, .R8G8_SSCALED, .R8G8_USCALED,
              .R16G16_SFLOAT, .R16G16_SINT, .R16G16_UINT, .R16G16_SNORM, .R16G16_UNORM, .R16G16_SSCALED, .R16G16_USCALED,
@@ -115,7 +116,7 @@ count_vk_format_channels :: proc(format : vk.Format) -> int {
 }
 count_texture_format_channels :: proc(format : Texture_Format) -> int {
     switch format {
-        case .SR, .R, .R_HDR, .R_UNORM:                    return 1;
+        case .SR, .R, .R_HDR, .R_UNORM:         return 1;
         case .SRG, .RG, .RG_HDR, .RG_UNORM:                return 2;
         case .SRGB, .RGB, .BGR, .RGB_HDR, .RGB_UNORM:      return 3;
         case .SRGBA, .RGBA, .BGRA, .RGBA_HDR, .RGBA_UNORM: return 4;
@@ -163,9 +164,9 @@ init_texture :: proc(texture : ^Texture, width, height : int, data : rawptr, for
     image_info.tiling = .OPTIMAL;
     image_info.initialLayout = .UNDEFINED;
     vk_usage_mask : vk.ImageUsageFlags = {};
-    if .READ in usage do vk_usage_mask |= {.TRANSFER_SRC};
-    if .WRITE in usage do vk_usage_mask |= {.TRANSFER_DST};
-    if .DRAW in usage do vk_usage_mask |= {.COLOR_ATTACHMENT};
+    if .READ   in usage do vk_usage_mask |= {.TRANSFER_SRC};
+    if .WRITE  in usage do vk_usage_mask |= {.TRANSFER_DST};
+    if .DRAW   in usage do vk_usage_mask |= {.COLOR_ATTACHMENT};
     if .SAMPLE in usage do vk_usage_mask |= {.SAMPLED};
 
     image_info.usage = vk_usage_mask;
@@ -182,11 +183,11 @@ init_texture :: proc(texture : ^Texture, width, height : int, data : rawptr, for
         if .WRITE not_in texture.usage_mask {
             log.errorf("Non-nil data was passed to init_texture/make_texture even though usage bit .WRITE was not set in usage mask. %s", texture.usage_mask);
         }
-        transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .UNDEFINED, .TRANSFER_DST_OPTIMAL, dc=dc);
+        transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .UNDEFINED, .TRANSFER_DST_OPTIMAL, {.COLOR}, dc=dc);
         if data != nil do transfer_data_to_device_image_improvised(data, 0, 0, width, height, texture.vk_image, size, dc);
-        transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL, dc=dc);
+        transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL, {.COLOR}, dc=dc);
     } else {
-        transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .UNDEFINED, .SHADER_READ_ONLY_OPTIMAL, dc=dc);
+        transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .UNDEFINED, .SHADER_READ_ONLY_OPTIMAL, {.COLOR}, dc=dc);
     }
 
     init_texture_from_vk_image(texture, texture.vk_image, width, height, format, usage, sampler, dc);
@@ -211,6 +212,9 @@ init_texture_from_vk_image :: proc(texture : ^Texture, image : vk.Image, width, 
         panic("Failed to create texture image view");
     }
 
+    // #Bad
+    // The sampler should only be created if the textures has
+    // the .SAMPLE flag set in the usage mask.
     sampler_info : vk.SamplerCreateInfo;
     sampler_info.sType = .SAMPLER_CREATE_INFO;
     sampler_info.magFilter = sampler.mag_filter;
@@ -248,7 +252,7 @@ destroy_texture :: proc(texture : Texture) {
         for record,record_i in p.bind_records {
             for item, i in record.bound_resources {
                 #partial switch resource in item {
-                    case Texture: bind_texture(p, null_texture_rgba, record.binding_location, i);
+                    case Texture: bind_texture(p, null_texture_srgb, record.binding_location, i);
                 }
             }
         }
@@ -303,14 +307,14 @@ write_texture :: proc(texture : Texture, data : rawptr, x, y, w, h : int) {
     assert(R > L && L >= 0 && R <= texture.width, "Texture region out of range");
     assert(T > B && B >= 0 && T <= texture.height, "Texture region out of range");
 
-    transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .SHADER_READ_ONLY_OPTIMAL, .TRANSFER_DST_OPTIMAL, 0, texture.dc);
+    transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .SHADER_READ_ONLY_OPTIMAL, .TRANSFER_DST_OPTIMAL, {.COLOR}, 0, texture.dc);
     transfer_data_to_device_image_improvised(
         data, x, y, w, h,
         texture.vk_image, 
         cast(vk.DeviceSize)(w * h * texture.channels * get_texture_format_component_size(texture.format)),
         texture.dc,
     );
-    transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL, 0, texture.dc);
+    transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .TRANSFER_DST_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL, {.COLOR}, 0, texture.dc);
 }
 read_texture :: proc(texture : Texture, x, y, w, h : int, pixels : rawptr) {
 
@@ -330,7 +334,7 @@ read_texture :: proc(texture : Texture, x, y, w, h : int, pixels : rawptr) {
     staging_buffer, staging_memory := make_staging_buffer(cast(vk.DeviceSize)size, .TRANSFER_DST, texture.dc);
     defer destroy_staging_buffer(staging_buffer, staging_memory, dc=texture.dc);
 
-    transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .SHADER_READ_ONLY_OPTIMAL, .TRANSFER_SRC_OPTIMAL, 0, texture.dc);
+    transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .SHADER_READ_ONLY_OPTIMAL, .TRANSFER_SRC_OPTIMAL, {.COLOR}, 0, texture.dc);
 
     command_buffer := begin_single_use_command_buffer(texture.dc);
     
@@ -355,5 +359,5 @@ read_texture :: proc(texture : Texture, x, y, w, h : int, pixels : rawptr) {
     mem.copy(pixels, staging_ptr, cast(int)size);
     vk.UnmapMemory(vk_device, staging_memory.page);
 
-    transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .TRANSFER_SRC_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL, 0, texture.dc);
+    transition_image_layout(texture.vk_image, texture_format_to_vk_format(texture.format), .TRANSFER_SRC_OPTIMAL, .SHADER_READ_ONLY_OPTIMAL, {.COLOR}, 0, texture.dc);
 }
