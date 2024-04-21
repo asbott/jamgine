@@ -66,6 +66,11 @@ log_layout :: proc(layout : Glsl_Layout) {
 add_standard_shader_macros :: proc(opts : shaderc.compileOptionsT, using dc : ^Device_Context) {
     shaderc.compile_options_add_macro_definition(opts, "highp_float", len("highp_float"), "double" if graphics_device.features.shaderFloat64 else "float", len("double") if graphics_device.features.shaderFloat64 else len("float"));
     shaderc.compile_options_add_macro_definition(opts, "RAND_MOD_RANGE", len("RAND_MOD_RANGE"), "2000", len("2000"));
+
+    max_ps_size := graphics_device.props.limits.maxPushConstantsSize;
+    max_ps_size_str := fmt.tprint(max_ps_size);
+    max_ps_size_cstr := cast(cstring)slice_to_multi_ptr(mem.byte_slice(builtin.raw_data(max_ps_size_str), len(max_ps_size_str)));
+    shaderc.compile_options_add_macro_definition(opts, "MAX_PUSH_CONSTANT_SIZE", len("MAX_PUSH_CONSTANT_SIZE"), max_ps_size_cstr, len(max_ps_size_str));
 }
 compile_shader_source :: proc(using dc : ^Device_Context, src : string, kind : Glsl_Stage_Kind, constants : []Shader_Constant = nil, allocator := context.allocator) -> (module : Shader_Module, ok : bool) {
     context.allocator = allocator;

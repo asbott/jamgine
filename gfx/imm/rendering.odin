@@ -148,6 +148,9 @@ _make_vertex :: proc(using ctx : ^Imm_Context, pos : lin.Vector3, tint := gfx.WH
     v.data_indices[DATA_INDEX_SCISSOR_INDEX] = cast(i32)current_scissor_index;
     v.data_indices[DATA_INDEX_VERTEX_TYPE] = vertex_type;
     v.data_indices[DATA_INDEX_TEXTURE_INDEX] = texture_index;
+
+    stats.num_vertices += 4;
+
     return v;
 }
 
@@ -462,7 +465,6 @@ rectangle_by_aabb :: proc(BL, TL, TR, BR : lin.Vector3, color := gfx.WHITE, usin
     reserve_vertices(ctx, len(ctx.vertices)+4);
 
     stats.num_quads += 1;
-    stats.num_vertices += 4;
     stats.num_indices += 6;
 
     texture_index : i32 = -1;
@@ -503,6 +505,7 @@ rectangle_by_bounds_lined :: proc(p : lin.Vector3, size : lin.Vector2, using ctx
         p + {  hs.x, -hs.y, p.z },
         color=color,
         ctx=ctx,
+        thickness=thickness
     );
 }
 
@@ -517,6 +520,146 @@ rectangle_by_aabb_lined :: proc(BL, TL, TR, BR : lin.Vector3, color := gfx.WHITE
     return vertices[first_index:];
 }
 rectangle_lined :: proc { rectangle_by_bounds_lined, rectangle_by_aabb_lined }
+
+
+
+
+cube :: proc(p : lin.Vector3, size : lin.Vector3, color := gfx.WHITE, using ctx := imm_context) -> []Vertex {
+    BL  := p + {-size.x/2, -size.y/2, -size.z/2};
+    TL  := p + {-size.x/2,  size.y/2, -size.z/2};
+    TR  := p + { size.x/2,  size.y/2, -size.z/2};
+    BR  := p + { size.x/2, -size.y/2, -size.z/2};
+    BL2 := p + {-size.x/2, -size.y/2,  size.z/2};
+    TL2 := p + {-size.x/2,  size.y/2,  size.z/2};
+    TR2 := p + { size.x/2,  size.y/2,  size.z/2};
+    BR2 := p + { size.x/2, -size.y/2,  size.z/2};
+    return cuboid(BL, TL, TR, BR, BL2, TL2, TR2, BR2, color, ctx);
+}
+
+// "Cube" by 8 points i.e. cuboid
+cuboid :: proc(BL, TL, TR, BR, BL2, TL2, TR2, BR2 : lin.Vector3, color := gfx.WHITE, using ctx := imm_context) -> []Vertex {
+    reserve_vertices(ctx, len(ctx.vertices)+24);
+
+    start_index := cast(u32)len(ctx.vertices);
+
+    rectangle_by_aabb(BL, TL, TR, BR, color, ctx); // Back face
+    rectangle_by_aabb(BL2, TL2, TR2, BR2, color, ctx); // Front face
+    rectangle_by_aabb(BL, TL, TL2, BL2, color, ctx); // Left face
+    rectangle_by_aabb(BR, TR, TR2, BR2, color, ctx); // Right face
+    rectangle_by_aabb(BL, BR, BR2, BL2, color, ctx); // Bottom face
+    rectangle_by_aabb(TL, TR, TR2, TL2, color, ctx); // Top face
+
+    return vertices[start_index:];
+}
+
+cube_lined :: proc(p : lin.Vector3, size : lin.Vector3, color := gfx.WHITE, thickness :f32=1, using ctx := imm_context) -> []Vertex {
+    BL  := p + {-size.x/2, -size.y/2, -size.z/2};
+    TL  := p + {-size.x/2,  size.y/2, -size.z/2};
+    TR  := p + { size.x/2,  size.y/2, -size.z/2};
+    BR  := p + { size.x/2, -size.y/2, -size.z/2};
+    BL2 := p + {-size.x/2, -size.y/2,  size.z/2};
+    TL2 := p + {-size.x/2,  size.y/2,  size.z/2};
+    TR2 := p + { size.x/2,  size.y/2,  size.z/2};
+    BR2 := p + { size.x/2, -size.y/2,  size.z/2};
+    return cuboid_lined(BL, TL, TR, BR, BL2, TL2, TR2, BR2, color, thickness, ctx);
+}
+
+cuboid_lined :: proc(BL, TL, TR, BR, BL2, TL2, TR2, BR2 : lin.Vector3, color := gfx.WHITE, thickness :f32=1, using ctx := imm_context) -> []Vertex {
+    first_index := len(vertices);
+    
+    line(BL, TL, thickness, color, ctx);
+    line(TL, TR, thickness, color, ctx);
+    line(TR, BR, thickness, color, ctx);
+    line(BR, BL, thickness, color, ctx);
+
+    line(BL2, TL2, thickness, color, ctx);
+    line(TL2, TR2, thickness, color, ctx);
+    line(TR2, BR2, thickness, color, ctx);
+    line(BR2, BL2, thickness, color, ctx);
+
+    line(BL, BL2, thickness, color, ctx);
+    line(TL, TL2, thickness, color, ctx);
+    line(TR, TR2, thickness, color, ctx);
+    line(BR, BR2, thickness, color, ctx);
+
+    return vertices[first_index:];
+}
+
+sphere :: proc(p : lin.Vector3, radius : f32, color := gfx.WHITE, segments := 16, using ctx := imm_context) -> []Vertex {
+    return ellipsoid(p, {radius*2, radius*2, radius*2}, color=color, segments=segments);
+}
+
+sphere_lined :: proc(p : lin.Vector3, radius : f32, color := gfx.WHITE, segments := 16, thickness :f32=1, using ctx := imm_context) -> []Vertex {
+    return ellipsoid_lined(p, {radius*2, radius*2, radius*2}, color=color, segments=segments, thickness=thickness);
+}
+
+ellipsoid :: proc(p : lin.Vector3, size : lin.Vector3, color := gfx.WHITE, segments := 16, using ctx := imm_context) -> []Vertex {
+    reserve_vertices(ctx, len(ctx.vertices) + segments * segments * 6);
+
+    start_index := cast(u32)len(ctx.vertices);
+
+    for i in 0..<segments {
+        for j in 0..<segments {
+            u0 := cast(f32)i / cast(f32)segments;
+            u1 := cast(f32)(i+1) / cast(f32)segments;
+            v0 := cast(f32)j / cast(f32)segments;
+            v1 := cast(f32)(j+1) / cast(f32)segments;
+
+            ellipsoidal_to_cartesian :: proc(p : lin.Vector3, size : lin.Vector3, theta, phi : f32) -> lin.Vector3 {
+                return p + lin.Vector3{
+                    size.x * math.sin(theta) * math.cos(phi),
+                    size.y * math.cos(theta),
+                    size.z * math.sin(theta) * math.sin(phi)
+                };
+            }
+
+            p0 := ellipsoidal_to_cartesian(p, size/2, u0 * math.PI, v0 * 2 * math.PI);
+            p1 := ellipsoidal_to_cartesian(p, size/2, u1 * math.PI, v0 * 2 * math.PI);
+            p2 := ellipsoidal_to_cartesian(p, size/2, u1 * math.PI, v1 * 2 * math.PI);
+            p3 := ellipsoidal_to_cartesian(p, size/2, u0 * math.PI, v1 * 2 * math.PI);
+
+            triangle_abc(p + p0, p + p1, p + p2, color, ctx);
+            triangle_abc(p + p0, p + p2, p + p3, color, ctx);
+        }
+    }
+
+    return vertices[start_index:];
+}
+
+ellipsoid_lined :: proc(p : lin.Vector3, size : lin.Vector3, color := gfx.WHITE, segments := 16, thickness :f32 = 1, using ctx := imm_context) -> []Vertex {
+    reserve_vertices(ctx, len(ctx.vertices) + segments * segments * 6);
+
+    start_index := cast(u32)len(ctx.vertices);
+
+    for i in 0..<segments {
+        for j in 0..<segments {
+            u0 := cast(f32)i / cast(f32)segments;
+            u1 := cast(f32)(i+1) / cast(f32)segments;
+            v0 := cast(f32)j / cast(f32)segments;
+            v1 := cast(f32)(j+1) / cast(f32)segments;
+
+            ellipsoidal_to_cartesian :: proc(p : lin.Vector3, size : lin.Vector3, theta, phi : f32) -> lin.Vector3 {
+                return p + lin.Vector3{
+                    size.x * math.sin(theta) * math.cos(phi),
+                    size.y * math.cos(theta),
+                    size.z * math.sin(theta) * math.sin(phi)
+                };
+            }
+
+            p0 := ellipsoidal_to_cartesian(p, size/2, u0 * math.PI, v0 * 2 * math.PI);
+            p1 := ellipsoidal_to_cartesian(p, size/2, u1 * math.PI, v0 * 2 * math.PI);
+            p2 := ellipsoidal_to_cartesian(p, size/2, u1 * math.PI, v1 * 2 * math.PI);
+            p3 := ellipsoidal_to_cartesian(p, size/2, u0 * math.PI, v1 * 2 * math.PI);
+
+            line(p + p0, p + p1, thickness, color, ctx);
+            line(p + p1, p + p2, thickness, color, ctx);
+            line(p + p2, p + p3, thickness, color, ctx);
+            line(p + p3, p + p0, thickness, color, ctx);
+        }
+    }
+
+    return vertices[start_index:];
+}
 
 shadow_rectangle :: proc(p : lin.Vector3, size : lin.Vector2, smoothness : f32  = 0.05, width : f32 = 0.1, color := gfx.BLACK, using ctx := imm_context) -> []Vertex {
     return rectangle_by_bounds(p, size, ctx=ctx, color=color, vertex_type = VERTEX_TYPE_SHADOW_RECT);    
@@ -547,7 +690,6 @@ triangle_abc :: proc(a, b, c : lin.Vector3, color := gfx.WHITE, using ctx := imm
     reserve_vertices(ctx, len(ctx.vertices)+3);
 
     stats.num_triangles += 1;
-    stats.num_vertices += 3;
     stats.num_indices += 3;
 
     texture_index : i32 = -1;
@@ -575,17 +717,19 @@ triangle_abc :: proc(a, b, c : lin.Vector3, color := gfx.WHITE, using ctx := imm
 triangle :: proc {triangle_abc, triangle_isosceles};
 
 circle :: proc(p : lin.Vector3, radius : f32, color := gfx.WHITE, using ctx := imm_context, texture : Maybe(jvk.Texture) = nil) -> []Vertex {
-    return rectangle_by_bounds(p, {radius, radius}, ctx, color, texture, vertex_type = VERTEX_TYPE_CIRCLE);
+    return rectangle_by_bounds(p, {radius*2, radius*2}, ctx, color, texture, vertex_type = VERTEX_TYPE_CIRCLE);
 }
 
 line :: proc(p0, p1 : lin.Vector3, thickness :f32= 1, color := gfx.WHITE, using ctx := imm_context) -> []Vertex {
     dir := lin.normalize(p1 - p0);
 
-    camera_dir_x := -camera.view[2][0];
-    camera_dir_y := -camera.view[2][1];
-    camera_dir_z := -camera.view[2][2];
+    inv_view := lin.inverse(camera.view);
 
-    camera_dir := lin.Vector3{camera_dir_x, camera_dir_y, camera_dir_z};
+    cam_right := inv_view[2][0];
+    cam_up := -inv_view[2][1];
+    cam_forward := inv_view[2][2];
+
+    camera_dir := lin.Vector3{cam_right, cam_up, cam_forward};
     
     perp_dir := lin.normalize(lin.cross(dir, camera_dir)) * (thickness / 2.0);
     

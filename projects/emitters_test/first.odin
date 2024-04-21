@@ -19,12 +19,12 @@ import "core:os"
 import "core:math"
 import "core:math/rand"
 import "core:fmt"
-import "core:strings"
 import "core:unicode"
 import "core:log"
 import "core:reflect"
 import "core:slice"
 import "core:builtin"
+import "core:strings"
 import "core:math/linalg"
 
 import "vendor:glfw"
@@ -57,6 +57,13 @@ Camera_Kind :: enum {
     PANNING_2D,
 }
 
+Any_Property :: union {
+    ^pfx.Particle_Property_F32,
+    ^pfx.Particle_Property_Vec2,
+    ^pfx.Particle_Property_Vec3,
+    ^pfx.Particle_Property_Vec4,
+}
+
 scene : struct {
     emitter : pfx.Emitter,
     orbit : lin.Vector2,
@@ -71,6 +78,8 @@ scene : struct {
     }
 }
 current_particle_texture : jvk.Texture;
+current_prop : Any_Property;
+current_prop_name : string;
 
 init :: proc() -> bool {
     using scene;
@@ -96,6 +105,7 @@ init :: proc() -> bool {
     gui_windows = slice.clone([]Gui_Window_Binding{
         {"Scene", true, do_scene_window, nil, false},
         {"Emitter", true, do_emitter_window, nil, false},
+        {"Property Editor", true, do_property_window, nil, false},
     });
 
     return true;
@@ -144,9 +154,6 @@ simulate_game :: proc() -> bool {
                             aspect := window_size.x / window_size.y;
                             plane_height := 2.0 * MIN_CLIP * math.tan_f32(fov / 2);
                             plane_width := plane_height * aspect;
-
-                            fmt.println(mouse_delta_factor);
-                            fmt.println(plane_width, plane_height);
 
                             pan -= lin.Vector2{plane_width * mouse_delta_factor.x, plane_height * mouse_delta_factor.y} * 100 * math.pow_f32(cam_distance, 1.5);
                         }
@@ -217,13 +224,11 @@ draw_game :: proc() -> bool {
     imm.set_render_target(gfx.window_surface);
     imm.begin3d();
     imm.clear_target(clear_color);
-    imm.push_translation({2, 2, 0});
+    imm.push_translation({2, 2, 0} if do_draw_gizmos else {-99999, -99999, -999999});
     imm.push_rotation_y(app.elapsed_seconds * 2);
-    imm.rectangle({}, {1, 1}, color=gfx.GREEN if do_draw_gizmos else gfx.TRANSPARENT);
+    imm.rectangle({}, {1, 1}, color=gfx.GREEN);
     imm.pop_transforms(2);
-    imm.rectangle({-1000, -1000, -1000}, {1, 1}, color=gfx.TRANSPARENT);
-    imm.flush();
-
+    
     if emitter.is_compiled {
         cam := imm.get_current_context().camera;
         proj := cam.proj;
@@ -232,6 +237,10 @@ draw_game :: proc() -> bool {
         pfx.draw_emitter(&emitter, proj, view_inv);
     }
 
+    config_before := emitter.config;
+
+    
+    
     for window,i in gui_windows {
         if window.show {
             igui.begin_window(fmt.tprint(window.name, "##Window"), open_ptr=&gui_windows[i].show);
@@ -243,6 +252,19 @@ draw_game :: proc() -> bool {
             igui.end_window();
         }
     }
+
+    if do_draw_gizmos {
+        p := lin.Vector3{-4, 4, 0};
+        length := cam_distance / 7;
+        // Y axis
+        imm.line(p, p + {0, length, 0}, color=gfx.GREEN, thickness=cam_distance/50);
+        // X Axis
+        imm.line(p, p + {length, 0, 0}, color=gfx.RED, thickness=cam_distance/50);
+        // Z Axis
+        imm.line(p, p + {0, 0, length}, color=gfx.BLUE, thickness=cam_distance/50);
+    }
+
+    imm.flush();
 
     @(thread_local)
     minimized : bool;
@@ -296,6 +318,11 @@ draw_game :: proc() -> bool {
 
     igui.end_window();
 
+    if emitter.is_compiled && config_before != emitter.config {
+        pfx.update_emitter_config(&emitter);
+        serial.update_synced_data();
+    }
+
     return true;
 }
 
@@ -311,7 +338,7 @@ do_scene_window :: proc(wnd : ^Gui_Window_Binding) {
 
 do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
     using scene;
-    config_before := emitter.config;
+    
 
     igui.columns(3);
     if igui.button("Compile") {
@@ -358,28 +385,141 @@ do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
 
         igui.columns(1);
     }
+    
     igui.separator();
-    f32_property("Lifetime", &emitter.lifetime, min=0.001);
-    igui.separator();
-    vec4_property("Color", &emitter.color);
-    igui.separator();
-    vec3_property("Velocity", &emitter.velocity);
-    igui.separator();
-    vec3_property("Acceleration", &emitter.acceleration);
-    igui.separator();
-    vec2_property("Angular Velocity (Local Yaw Pitch)", &emitter.angular_velocity);
-    igui.separator();
-    vec2_property("Angular Acceleration (Local Yaw Pitch)", &emitter.angular_acceleration);
-    igui.separator();
-    vec3_property("Rotation (Z-only for billboards)", &emitter.rotation);
-    igui.separator();
-    vec3_property("size", &emitter.size, min=0.0001);
-    igui.separator();
-    vec3_property("position", &emitter.position);
 
-    if emitter.is_compiled && config_before != emitter.config {
-        pfx.update_emitter_config(&emitter);
-        serial.update_synced_data();
+    igui.label("Spawn Area");
+    enum_selection("Kind##SpawnArea", &emitter.spawn_area.kind, display_only_last_word=true);
+    if emitter.spawn_area.kind != .AREA_POINT {
+        enum_selection("Distribution##SpawnArea", &emitter.spawn_area.spawn_distribution, display_only_last_word=true);
+        if emitter.spawn_area.spawn_distribution == .SPAWN_DIST_RANDOM {
+            enum_selection("Random Distribtion##SpawnArea", &emitter.spawn_area.rand_spawn_distribution);
+            enum_selection("Rand Per##SpawnArea", &emitter.spawn_area.scalar_or_component_rand);
+        }
+    }
+    igui.f32vec3_drag("Position", &emitter.spawn_area.pos, rate=0.05);
+
+    line_width := cam_distance / 300;
+
+    switch emitter.spawn_area.kind {
+        case .AREA_POINT: {
+        }
+        case .AREA_RECTANGLE: {
+            igui.f32vec2_drag("Size", cast(^lin.Vector2)&emitter.spawn_area.size, rate=0.01);
+            // Rad
+            igui.f32vec3_drag("Euler", &emitter.spawn_area.rotation, rate=0.01);
+
+            if do_draw_gizmos {
+                imm.push_translation(emitter.spawn_area.pos);
+                imm.push_rotation_x(emitter.spawn_area.rotation.x);
+                imm.push_rotation_y(-emitter.spawn_area.rotation.y);
+                imm.push_rotation_z(emitter.spawn_area.rotation.z);
+                imm.rectangle_lined(p={}, size=emitter.spawn_area.size.xy, color=gfx.GREEN, thickness=line_width);
+                imm.pop_transforms(4);
+            }
+        }
+        case .AREA_CIRCLE: {
+            igui.f32_drag("Radius", cast(^f32)&emitter.spawn_area.size, rate=0.01);
+            // Rad
+            igui.f32vec3_drag("Euler", &emitter.spawn_area.rotation, rate=0.01);
+
+            if do_draw_gizmos {
+                imm.push_translation(emitter.spawn_area.pos);
+                imm.push_rotation_x(emitter.spawn_area.rotation.x);
+                imm.push_rotation_y(-emitter.spawn_area.rotation.y);
+                imm.push_rotation_z(emitter.spawn_area.rotation.z);
+                imm.circle(p={}, radius=emitter.spawn_area.size.x, color={0, 1, 0, 0.5});
+                imm.pop_transforms(4);
+            }
+        }
+        case .AREA_CUBE: {
+            igui.f32vec3_drag("Size", &emitter.spawn_area.size, rate=0.01);
+            // Rad
+            igui.f32vec3_drag("Euler", &emitter.spawn_area.rotation, rate=0.01);
+
+            if do_draw_gizmos {
+                imm.push_translation(emitter.spawn_area.pos);
+                imm.push_rotation_x(emitter.spawn_area.rotation.x);
+                imm.push_rotation_y(-emitter.spawn_area.rotation.y);
+                imm.push_rotation_z(emitter.spawn_area.rotation.z);
+                imm.cube_lined(p={}, size=emitter.spawn_area.size, color=gfx.GREEN, thickness=line_width);
+                imm.pop_transforms(4);
+            }
+        }
+        case .AREA_SPHERE: {
+            igui.f32_drag("Radius", cast(^f32)&emitter.spawn_area.size, rate=0.01);
+
+            if do_draw_gizmos {
+                imm.push_translation(emitter.spawn_area.pos);
+                imm.push_rotation_x(emitter.spawn_area.rotation.x);
+                imm.push_rotation_y(-emitter.spawn_area.rotation.y);
+                imm.push_rotation_z(emitter.spawn_area.rotation.z);
+                imm.sphere_lined(p={}, radius=emitter.spawn_area.size.x, color=gfx.GREEN, thickness=line_width);
+                imm.pop_transforms(4);
+            }
+        }
+        case .AREA_ELLIPSOID: {
+            igui.f32vec3_drag("Size", &emitter.spawn_area.size, rate=0.01);
+            // Rad
+            igui.f32vec3_drag("Euler", &emitter.spawn_area.rotation, rate=0.01);
+
+            if do_draw_gizmos {
+                imm.push_translation(emitter.spawn_area.pos);
+                imm.push_rotation_x(emitter.spawn_area.rotation.x);
+                imm.push_rotation_y(-emitter.spawn_area.rotation.y);
+                imm.push_rotation_z(emitter.spawn_area.rotation.z);
+                imm.ellipsoid_lined(p={}, size=emitter.spawn_area.size, color=gfx.GREEN, thickness=line_width);
+                imm.pop_transforms(4);
+            }
+        }
+    }
+
+    property_selector(&emitter.lifetime, &emitter.config.lifetime, "Lifetime");
+    property_selector(&emitter.color, &emitter.config.color, "Color");
+    property_selector(&emitter.velocity, &emitter.config.velocity, "Velocity");
+    property_selector(&emitter.acceleration, &emitter.config.acceleration, "Acceleration");
+    property_selector(&emitter.angular_velocity, &emitter.config.angular_velocity, "Angular Velocity");
+    property_selector(&emitter.angular_acceleration, &emitter.config.angular_acceleration, "Angular Acceleration");
+    property_selector(&emitter.rotation, &emitter.config.rotation, "Rotation");
+    property_selector(&emitter.size, &emitter.config.size, "Size");
+    property_selector(&emitter.position, &emitter.config.position, "Position");
+
+
+    
+}
+
+do_property_window :: proc(wnd : ^Gui_Window_Binding) {
+    using scene;
+    if current_prop == nil {
+        igui.label("Select a property to edit");
+        return;
+    }
+
+    igui.label(fmt.tprint("Editing: ", current_prop_name));
+
+    switch prop in current_prop {
+        case ^pfx.Particle_Property_F32: {
+            f32_property(current_prop_name, prop);
+        }
+        case ^pfx.Particle_Property_Vec2: {
+            vec2_property(current_prop_name, prop);
+        }
+        case ^pfx.Particle_Property_Vec3: {
+            vec3_property(current_prop_name, prop);
+        }
+        case ^pfx.Particle_Property_Vec4: {
+            vec4_property(current_prop_name, prop);
+        }
+    }
+}
+
+
+property_selector :: proc(any_prop : Any_Property, base : pfx.Particle_Property_Base, name : string) {
+    igui.separator();
+    igui.label(fmt.tprint(name, ": ", base.kind));
+    if igui.button(fmt.tprint("Edit##", name)) {
+        current_prop = any_prop;
+        current_prop_name = name;
     }
 }
 
@@ -520,14 +660,27 @@ vec4_property :: proc(name : string, prop : ^pfx.Particle_Property_Vec4, min : M
     }
 }
 
-enum_selection :: proc(name : string, value : ^$T) {
+enum_selection :: proc(name : string, value : ^$T, display_only_last_word := false) {
     igui.columns(2);
     igui.label(name);
-    igui.label(fmt.tprint(":", value^, "##", name));
+
+    shortify :: proc(value : $T) -> string {
+        str := fmt.tprint(value);
+        last_separator := strings.last_index_any(str, "_");
+        if last_separator != -1  {
+            return str[last_separator+1:];
+        } else {
+            return str;
+        }
+    }
+    
+    lbl := fmt.tprint(":", value^, "##", name)
+    igui.label(shortify(lbl) if display_only_last_word else lbl);
+
     igui.columns(min(len(T), 4));
     for field_name,i in reflect.enum_field_names(T) {
         field_value := reflect.enum_field_values(T)[i];
-        if igui.button(fmt.tprintf("%s##%s", field_name, name)) {
+        if igui.button(fmt.tprintf("%s##%s", shortify(field_name) if display_only_last_word else field_name, name)) {
             value^ = cast(T)field_value;
         }
     }

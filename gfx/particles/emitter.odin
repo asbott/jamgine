@@ -54,6 +54,17 @@ Particle_Kind :: enum i32 {
     SPHERE,
     CUBE,
 }
+particle_kind_index_count :: proc(kind : Particle_Kind) -> int {
+    switch kind {
+        case .RECTANGLE, .CIRCLE, .TRIANGLE, .TEXTURE: 
+            return 6;
+
+        // #Incomplete
+        case .SPHERE: return 1;
+        case .CUBE: return 1;
+    }
+    return 0;
+}
  
 
 // These property structs technically don't need to be std140 compliant,
@@ -94,6 +105,36 @@ Particle_Property_Vec4 :: struct {
     value2 : lin.Vector4,
 }
 
+Spawn_Area_Kind :: enum i32 {
+    AREA_POINT,
+    AREA_RECTANGLE,
+    AREA_CIRCLE,
+    AREA_SPHERE,
+    AREA_ELLIPSOID,
+    AREA_CUBE,
+}
+Spawn_Area_Distribution :: enum i32 {
+    SPAWN_DIST_RANDOM,
+    SPAWN_DIST_OUTWARDS,
+    SPAWN_DIST_INWARDS,
+}
+Spawn_Area :: struct {
+    pos : lin.Vector3,
+    _ : [4]byte,
+
+    rotation : lin.Vector3,
+    __ : [4]byte,
+
+    size : lin.Vector3,
+    ___ : [4]byte,
+
+    kind : Spawn_Area_Kind,
+    spawn_distribution : Spawn_Area_Distribution,
+    rand_spawn_distribution : Random_Distribution,
+    scalar_or_component_rand : Scalar_Or_Component,
+}
+#assert(size_of(Spawn_Area) % 16 == 0 && size_of(Spawn_Area) == 64);
+
 // This is the part that's reflected in the ssbo
 Emitter_Config :: struct {
     // 16-byte block!!
@@ -108,7 +149,9 @@ Emitter_Config :: struct {
     using _should_only_2D  : struct #align(4) { should_only_2D : bool },
     using _should_loop : struct #align(4) { should_loop : bool },
     // !!
-
+    
+    spawn_area : Spawn_Area,
+    
     // Need unique names to be serialized correctly
     size     : Particle_Property_Vec3,
     color : Particle_Property_Vec4,
@@ -119,6 +162,7 @@ Emitter_Config :: struct {
     angular_acceleration : Particle_Property_Vec2,
     rotation : Particle_Property_Vec3,
     lifetime : Particle_Property_F32,
+
 
     model : lin.Matrix4,
 }
@@ -134,7 +178,10 @@ Emitter :: struct {
 
     max_particles : int,
     compiled_max_particles : int,
-    compiled_max_emission_time : f32,
+
+    last_computation_first_index : int,
+    last_computation_num_particles : int,
+
 
     enable_depth_test : bool,
     enable_depth_write : bool,
@@ -148,8 +195,6 @@ Emitter :: struct {
         particles_sbo : ^jvk.Storage_Buffer,
         random_texture : jvk.Texture,
     
-        draw_vbo : ^jvk.Vertex_Buffer,
-        draw_ibo : ^jvk.Index_Buffer,
         draw_pipeline : ^jvk.Pipeline,
         particle_texture : jvk.Texture,
         is_compiled : bool,
@@ -174,6 +219,8 @@ init_emitter_config :: proc(e : ^Emitter) {
     e.size.seed = rand_seed();
     e.position.seed = rand_seed();
 
+    e.spawn_area.pos = {0, 0, 0};
+    e.spawn_area.kind = .AREA_POINT;
 
     e.model = lin.identity(lin.Matrix4);
     e.config.emission_rate = 50000;
@@ -228,14 +275,12 @@ compile_emitter :: proc(e : ^Emitter) -> bool {
 
     e.compiled_max_particles = e.max_particles;
 
-    time_when_last_particle_is_emitted := f32(e.max_particles) / f32(e.config.emission_rate);
-    
-    e.compiled_max_emission_time = time_when_last_particle_is_emitted;
+    emission_interval := 1.0 / e.config.emission_rate;
+
+    time_when_last_particle_is_emitted := f32(e.max_particles) * emission_interval;
 
     if e.is_compiled {
         jvk.destroy_texture(e.random_texture);
-        jvk.destroy_vertex_buffer(e.draw_vbo);
-        jvk.destroy_index_buffer(e.draw_ibo);
         jvk.destroy_pipeline(e.draw_pipeline);
         jvk.destroy_shader_program(e.draw_pipeline.program);
         jvk.destroy_storage_buffer(e.particles_sbo);
@@ -247,7 +292,6 @@ compile_emitter :: proc(e : ^Emitter) -> bool {
 
     for name, i in reflect.enum_field_names(Property_Kind) {
         value := reflect.enum_field_values(Property_Kind)[i];
-        fmt.println(name, value);
         append(&shader_constants, jvk.Shader_Constant{name, cast(int)value});
     }
     for name, i in reflect.enum_field_names(Interp_Kind) {
@@ -264,6 +308,14 @@ compile_emitter :: proc(e : ^Emitter) -> bool {
     }
     for name, i in reflect.enum_field_names(Scalar_Or_Component) {
         value := reflect.enum_field_values(Scalar_Or_Component)[i];
+        append(&shader_constants, jvk.Shader_Constant{name, cast(int)value});
+    }
+    for name, i in reflect.enum_field_names(Spawn_Area_Kind) {
+        value := reflect.enum_field_values(Spawn_Area_Kind)[i];
+        append(&shader_constants, jvk.Shader_Constant{name, cast(int)value});
+    }
+    for name, i in reflect.enum_field_names(Spawn_Area_Distribution) {
+        value := reflect.enum_field_values(Spawn_Area_Distribution)[i];
         append(&shader_constants, jvk.Shader_Constant{name, cast(int)value});
     }
     append(&shader_constants, jvk.Shader_Constant{"NUM_PARTICLES", e.max_particles});
@@ -311,7 +363,8 @@ compile_emitter :: proc(e : ^Emitter) -> bool {
     jvk.bind_compute_storage_buffer(e.compute_context, e.particles_sbo, 1);
     jvk.bind_compute_texture(e.compute_context, e.random_texture, 2);
     
-    jvk.set_buffer_data(e.emitter_ubo, &e.config, size_of(Emitter_Config));
+    e.is_compiled = true;
+    update_emitter_config(e);
 
     //
     // Draw resources
@@ -322,41 +375,6 @@ compile_emitter :: proc(e : ^Emitter) -> bool {
     draw_program, draw_ok := jvk.make_shader_program(vert_src, frag_src, constants=shader_constants[:]);
     assert(draw_ok, "Failed compiling emitter draw program");
     e.draw_pipeline = jvk.make_pipeline(draw_program, gfx.window_surface.render_pass, enable_depth_test=(e.enable_depth_test || e.enable_depth_write));
-    
-    verts := make([]Particle_Vertex, e.max_particles * 4);
-    indices := make([]u32, e.max_particles * 6);
-
-
-    for i := 0; i < len(verts); i += 4 {
-        v0 := &verts[i + 0];
-        v1 := &verts[i + 1];
-        v2 := &verts[i + 2];
-        v3 := &verts[i + 3];
-
-        v0.particle_index = cast(i32)i;
-        v1.particle_index = cast(i32)i;
-        v2.particle_index = cast(i32)i;
-        v3.particle_index = cast(i32)i;
-
-        v0.local_pos = { -1, -1, 0 };
-        v1.local_pos = { -1,  1, 0 };
-        v2.local_pos = {  1,  1, 0 };
-        v3.local_pos = {  1, -1, 0 };
-
-        particle_index := (i / 4) * 6;
-        indices[particle_index + 0] = cast(u32)i + 0;
-        indices[particle_index + 1] = cast(u32)i + 1;
-        indices[particle_index + 2] = cast(u32)i + 2;
-        indices[particle_index + 3] = cast(u32)i + 0;
-        indices[particle_index + 4] = cast(u32)i + 2;
-        indices[particle_index + 5] = cast(u32)i + 3;
-    }
-
-    e.draw_vbo = jvk.make_vertex_buffer(verts, .VRAM_WITH_IMPROVISED_STAGING_BUFFER);
-    e.draw_ibo = jvk.make_index_buffer(indices, .VRAM_WITH_IMPROVISED_STAGING_BUFFER);
-
-    jvk.set_buffer_data(e.draw_vbo, builtin.raw_data(verts), size_of(Particle_Vertex) * len(verts));
-    jvk.set_buffer_data(e.draw_ibo, builtin.raw_data(indices), size_of(u32) * len(indices));
 
     jvk.bind_storage_buffer(e.draw_pipeline, e.particles_sbo, 0);
     jvk.bind_uniform_buffer(e.draw_pipeline, e.emitter_ubo, 1);
@@ -365,7 +383,8 @@ compile_emitter :: proc(e : ^Emitter) -> bool {
         jvk.bind_texture(e.draw_pipeline, e.particle_texture, 2);
     }
 
-    e.is_compiled = true;
+    e.last_computation_first_index = min(e.compiled_max_particles, e.last_computation_first_index);
+    e.last_computation_num_particles = min(e.compiled_max_particles - e.last_computation_first_index, e.last_computation_num_particles);
 
     return true;
 }
@@ -373,8 +392,6 @@ compile_emitter :: proc(e : ^Emitter) -> bool {
 destroy_emitter :: proc(e : ^Emitter) {
     if e.is_compiled {
         jvk.destroy_texture(e.random_texture);
-        jvk.destroy_vertex_buffer(e.draw_vbo);
-        jvk.destroy_index_buffer(e.draw_ibo);
         jvk.destroy_pipeline(e.draw_pipeline);
         jvk.destroy_shader_program(e.draw_pipeline.program);
         jvk.destroy_storage_buffer(e.particles_sbo);
@@ -393,9 +410,66 @@ update_emitter_config :: proc(e : ^Emitter) {
 simulate_emitter :: proc(e : ^Emitter) {
     assert(e.is_compiled, "Emitter must be compiled before simulation, but it wasn't.");
     now := cast(f32)get_emitter_time(e);
-    state := struct {now : f32} {now};
 
-    jvk.do_compute(e.compute_context, e.compiled_max_particles, push_constant=&state);
+    first_index : int;
+    num_particles_to_compute : int;
+    
+    spawned_particles_since_start := e.compiled_max_particles;
+    
+    longest_lifetime := e.config.lifetime.value1;
+    if e.config.lifetime.kind == .RANDOM {
+        longest_lifetime = e.config.lifetime.value2;
+    }
+
+    emission_interval := 1.0 / e.config.emission_rate;
+
+    defer {
+        e.last_computation_first_index = first_index;
+        e.last_computation_num_particles = num_particles_to_compute;
+    }
+
+    max_emission_time := f32(e.compiled_max_particles) * emission_interval;
+
+    if e.config.should_loop {
+        max_time := max_emission_time + longest_lifetime;
+
+        now_looped := math.mod(now, max_time);
+
+        earliest_current_alive_emission_time := max(now_looped - longest_lifetime, 0);
+
+        first_index = min(int(earliest_current_alive_emission_time / emission_interval), e.compiled_max_particles-1);
+
+        max_alive_particles := min(int(max_time / emission_interval), e.compiled_max_particles);
+
+        num_particles_to_compute = min(cast(int)(now / emission_interval), max_alive_particles);
+
+    } else {
+        if now > (max_emission_time + longest_lifetime) {
+            spawned_particles_since_start = 0;
+            return;
+        } else {
+            spawned_particles_since_start = min(cast(int)(now / emission_interval), e.compiled_max_particles);
+        }
+        earliest_current_alive_emission_time := max(now - longest_lifetime, 0);
+        first_index = cast(int)(earliest_current_alive_emission_time / emission_interval);
+        num_particles_to_compute = spawned_particles_since_start - first_index;
+    }
+    assert(first_index >= 0);
+    
+    if first_index > e.compiled_max_particles {
+        assert(!e.config.should_loop);
+        num_particles_to_compute = 0;
+        return;
+    }
+    
+    state := struct {now : f32, first_index : i32} {now, cast(i32)first_index};
+    
+
+    // #Speed
+    // If we could offset the compute we could also limit the dispatched
+    // computes to the number of live particles here.
+    jvk.do_compute(e.compute_context, num_particles_to_compute, push_constant=&state);
+    
 
     // #Speed
     // We could signal a semaphore in the emitter and wait for it when doing
@@ -407,8 +481,8 @@ simulate_emitter :: proc(e : ^Emitter) {
 }
 
 draw_emitter_to_window :: proc(e : ^Emitter, proj, view : lin.Matrix4) {
-    // #Speed
     if e.particle_texture.vk_image != 0 {
+        // #Speed
         jvk.bind_texture(e.draw_pipeline, e.particle_texture, 2);
     }
     jvk.begin_draw_surface(e.draw_pipeline, gfx.window_surface, write_depth=e.enable_depth_write, test_depth=e.enable_depth_test);
@@ -418,8 +492,8 @@ draw_emitter_to_window :: proc(e : ^Emitter, proj, view : lin.Matrix4) {
     jvk.end_draw(e.draw_pipeline);
 }
 draw_emitter_to_target :: proc(e : ^Emitter, target : jvk.Render_Target, proj, view : lin.Matrix4) {
-    // #Speed
     if e.particle_texture.vk_image != 0 {
+        // #Speed
         jvk.bind_texture(e.draw_pipeline, e.particle_texture, 2);
     }
     jvk.begin_draw(e.draw_pipeline, target, write_depth=e.enable_depth_write, test_depth=e.enable_depth_test);
@@ -437,6 +511,14 @@ draw_emitter :: proc {
 cmd_draw_emitter :: proc(e : ^Emitter, proj, view : lin.Matrix4) {
     //jvk.cmd_clear(particles_pipeline, clear_color={.05, .05, .1, 1.0});
 
+    if e.last_computation_num_particles <= 0 {
+        return;
+    }
+
+    if !e.should_loop && e.last_computation_first_index >= e.compiled_max_particles {
+        return;
+    }
+
     Transform_Push_Constant :: struct {
         proj : lin.Matrix4,
         view : lin.Matrix4,
@@ -445,9 +527,15 @@ cmd_draw_emitter :: proc(e : ^Emitter, proj, view : lin.Matrix4) {
     ps.proj = proj;
     ps.view = view;
 
+    // #Hack Cheeky.
+    // We want to keep push constant under 128 bytes so we use one of
+    // the 0's in the view matrix to store the index offset.
+    assert(ps.view[2][3] == 0.0 || ps.view[2][3] == -0.0);
+    ps.view[2][3] = cast(f32)e.last_computation_first_index;
+
     jvk.cmd_set_push_constant(e.draw_pipeline, &ps, 0, size_of(Transform_Push_Constant));
 
-    jvk.cmd_draw_indexed(e.draw_pipeline, e.draw_vbo, e.draw_ibo);
+    jvk.cmd_draw(e.draw_pipeline, particle_kind_index_count(e.particle_kind), e.last_computation_num_particles);
 }
 
 set_particle_texture :: proc(e : ^Emitter, texture : jvk.Texture) {

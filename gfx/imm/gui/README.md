@@ -33,6 +33,7 @@ Above code results in:
 - Extremely modular (everything is just panels with flags)
 
 ![](/repo/immgui_emitters_example.gif)
+![](/repo/emitters_spawn_area.gif)
 
 ## TODO LIST
 - Improve Text input widget

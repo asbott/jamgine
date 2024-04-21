@@ -59,6 +59,23 @@ struct Property_Vec4 {
     vec4 value1; // 16 bytes
     vec4 value2; // 16 bytes
 };
+struct Spawn_Area {
+    /*
+    For some reason in this particular struct the vec3's arent padded 
+    to 16 bytes !?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!?!?!?!??!?!?!!?!?!?!?!?!??!?!?!!?!??!?!!?!? 
+    */
+    vec3 pos;
+    float pad0;
+    vec3 rotation;
+    float pad1;
+    vec3 size;
+    float pad2;
+
+    int kind;
+    int spawn_distribution;
+    int rand_spawn_distribution;
+    int scalar_or_component_rand;
+};
 struct Emitter_Config {
     float emission_rate; // 0-4
     float pad0; // 4-8
@@ -69,6 +86,8 @@ struct Emitter_Config {
     bool should_only_2D; // 24-28
     bool should_loop; // 28-32
 
+    Spawn_Area spawn_area;
+    
     Property_Vec3 size;
     Property_Vec4 color;
     Property_Vec3 position;
@@ -78,6 +97,7 @@ struct Emitter_Config {
     Property_Vec2 angular_acceleration; // yaw, pitch
     Property_Vec3 rotation;
     Property_F32 lifetime;
+
 
     mat4 model;
 };
@@ -97,6 +117,7 @@ layout (binding = 2) uniform sampler2D u_random_texture;
 
 layout(push_constant) uniform Simulation_State {
     float now;
+    int first_index;
 };
 
 float rand(float seed) {
@@ -159,20 +180,10 @@ float rand_range_neg_logx(float seed, float min, float max) {
 float oscillate(float n, float t) {
     return (sin(n*2*PI*(t-(1.0/(n*4))))+1.0) / 2.0;
 }
-float read_rand_one(float value1, float value2, int distribution, float seed, bool soft_lock_rand_range) {
+float sample_rand(float value1, float value2, int distribution, float seed, bool soft_lock_rand_range) {
     float v;
     float u = rand(seed);
-
-    /*
-    Random_Distribution :: enum i32 {
-        UNIFORM, NORMAL, EXTREMES, NEG_LOGX,
-        X_SQUARED, X_CUBED, X_FOURTH, X_FIFTH,
-        INV_X_SQUARED, INV_X_CUBED, INV_X_FOURTH, INV_X_FIFTH,
-        TWO_DICE, THREE_DICE, FOUR_DICE,
-        TWO_DICE_SQUARED, THREE_DICE_SQUARED, FOUR_DICE_SQUARED,
-    }
-    */
-
+    
     switch (distribution) {
         case UNIFORM:
             v = u;
@@ -279,7 +290,7 @@ float read_property_f32(Property_F32 prop, float seed, float life_factor) {
     if (prop.kind == CONSTANT) {
         return prop.value1;
     } else if (prop.kind == RANDOM) {
-        return read_rand_one(prop.value1, prop.value2, prop.distribution, unique_seed, prop.soft_lock_rand_range);
+        return sample_rand(prop.value1, prop.value2, prop.distribution, unique_seed, prop.soft_lock_rand_range);
     } else if (prop.kind == INTERPOLATE) {
         if (prop.interp_kind == LINEAR) {
             return mix(prop.value1, prop.value2, life_factor);
@@ -297,8 +308,8 @@ vec2 read_property_vec2(Property_Vec2 prop, float seed, float life_factor) {
         float seed_offset_factor = 1.0;
         if (prop.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
         return vec2(
-            read_rand_one(prop.value1.x, prop.value2.x, prop.distribution, unique_seed + 0 * seed_offset_factor, prop.soft_lock_rand_range),
-            read_rand_one(prop.value1.y, prop.value2.y, prop.distribution, unique_seed + 1 * seed_offset_factor, prop.soft_lock_rand_range)
+            sample_rand(prop.value1.x, prop.value2.x, prop.distribution, unique_seed + 0 * seed_offset_factor, prop.soft_lock_rand_range),
+            sample_rand(prop.value1.y, prop.value2.y, prop.distribution, unique_seed + 1 * seed_offset_factor, prop.soft_lock_rand_range)
         );
     } else if (prop.kind == INTERPOLATE) {
         if (prop.interp_kind == LINEAR) {
@@ -317,9 +328,9 @@ vec3 read_property_vec3(Property_Vec3 prop, float seed, float life_factor) {
         float seed_offset_factor = 1.0;
         if (prop.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
         return vec3(
-            read_rand_one(prop.value1.x, prop.value2.x, prop.distribution, unique_seed + 0 * seed_offset_factor, prop.soft_lock_rand_range),
-            read_rand_one(prop.value1.y, prop.value2.y, prop.distribution, unique_seed + 1 * seed_offset_factor, prop.soft_lock_rand_range),
-            read_rand_one(prop.value1.z, prop.value2.z, prop.distribution, unique_seed + 2 * seed_offset_factor, prop.soft_lock_rand_range)
+            sample_rand(prop.value1.x, prop.value2.x, prop.distribution, unique_seed + 0 * seed_offset_factor, prop.soft_lock_rand_range),
+            sample_rand(prop.value1.y, prop.value2.y, prop.distribution, unique_seed + 1 * seed_offset_factor, prop.soft_lock_rand_range),
+            sample_rand(prop.value1.z, prop.value2.z, prop.distribution, unique_seed + 2 * seed_offset_factor, prop.soft_lock_rand_range)
         );
         
     } else if (prop.kind == INTERPOLATE) {
@@ -339,10 +350,10 @@ vec4 read_property_vec4(Property_Vec4 prop, float seed, float life_factor) {
         float seed_offset_factor = 1.0;
         if (prop.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
         return vec4(
-            read_rand_one(prop.value1.x, prop.value2.x, prop.distribution, unique_seed + 0 * seed_offset_factor, prop.soft_lock_rand_range),
-            read_rand_one(prop.value1.y, prop.value2.y, prop.distribution, unique_seed + 1 * seed_offset_factor, prop.soft_lock_rand_range),
-            read_rand_one(prop.value1.z, prop.value2.z, prop.distribution, unique_seed + 2 * seed_offset_factor, prop.soft_lock_rand_range),
-            read_rand_one(prop.value1.w, prop.value2.w, prop.distribution, unique_seed + 3 * seed_offset_factor, prop.soft_lock_rand_range)
+            sample_rand(prop.value1.x, prop.value2.x, prop.distribution, unique_seed + 0 * seed_offset_factor, prop.soft_lock_rand_range),
+            sample_rand(prop.value1.y, prop.value2.y, prop.distribution, unique_seed + 1 * seed_offset_factor, prop.soft_lock_rand_range),
+            sample_rand(prop.value1.z, prop.value2.z, prop.distribution, unique_seed + 2 * seed_offset_factor, prop.soft_lock_rand_range),
+            sample_rand(prop.value1.w, prop.value2.w, prop.distribution, unique_seed + 3 * seed_offset_factor, prop.soft_lock_rand_range)
         );
         
     } else if (prop.kind == INTERPOLATE) {
@@ -355,13 +366,33 @@ vec4 read_property_vec4(Property_Vec4 prop, float seed, float life_factor) {
     return vec4(0);
 }
 
+mat3 make_rotation(vec3 euler) {
+    float cz = cos(euler.z);
+    float sz = sin(euler.z);
+    float cy = cos(euler.y);
+    float sy = sin(euler.y);
+    float cx = cos(-euler.x);
+    float sx = sin(-euler.x);
+
+    return mat3(
+        cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx,
+        sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx,
+        -sy,    cy * sx,              cy * cx
+    );
+}
+vec3 rotate_point(vec3 point, vec3 center, mat3 rotation) {
+    vec3 translated = point - center;
+    vec3 rotated = rotation * translated;
+    return rotated + center;
+}
 
 void main() {
-    uint idx = gl_GlobalInvocationID.x;
 
-    if (idx >= NUM_PARTICLES) {
-        return;
-    }
+    // Instead of hard-limit to NUM_PARTICLES we can wrap around but
+    // this means client needs to have precise control over the dispatched
+    // compute jobs. This lets us dispatch compute on one range of particles
+    // that start near the end but wraps around to the start.
+    uint idx = (gl_GlobalInvocationID.x + first_index) % NUM_PARTICLES;
 
     Particle p = particles[idx];
 
@@ -383,19 +414,18 @@ void main() {
     // Will loop
     float age;
     if (emitter.should_loop) {
-        // After last particle is emitted, we start from the beginning seamlessly
-        age = mod(float(now - emission_time), max(float(time_when_last_particle_is_emitted), life_time));
+        age = mod(float(now - emission_time), max(time_when_last_particle_is_emitted, life_time));
     } else {
         age = float(now - emission_time);
     }
     float life_factor = age / life_time;
 
-    if (life_factor >= 1.0) {
-        particles[idx].color = vec4(0);
+    if (life_factor > 1.0) {
+        particles[idx].color = vec4(0,0,0,0);
         return;
     }
-    if (emission_time >= now) {
-        particles[idx].color = vec4(0);
+    if (life_factor < 0.0) {
+        particles[idx].color = vec4(0,0,0,0);
         return;
     }
 
@@ -421,7 +451,199 @@ void main() {
     mat3 total_rotation = pitch_rotation * yaw_rotation;
     velocity = total_rotation * velocity;
 
+    // #Redundant #Remove
+    // We dont need a position property now that we have a spawn area thing
     vec3 start_pos = read_property_vec3(emitter.position, particle_seed, life_factor);
+
+    switch (emitter.spawn_area.kind) {
+        case AREA_RECTANGLE: {
+            // #Speed
+            // This is a lot of computation for each particle every
+            // simulation step even though its going to be the same
+            // each step.
+            
+            vec3 center = emitter.spawn_area.pos;
+            // Ignore z because its 2D
+            // Assume a rectangle facing the z-axis.
+            // Right-handed X and up is Y
+            vec2 size = emitter.spawn_area.size.xy;
+
+            float L = center.x + -size.x / 2.0;
+            float R = center.x + size.x / 2.0;
+            float B = center.y + -size.y / 2.0;
+            float T = center.y + size.y / 2.0;
+            float z = center.z;
+
+            vec3 BL = vec3(L, B, z);
+            vec3 TL = vec3(L, T, z);
+            vec3 TR = vec3(R, T, z);
+            vec3 BR = vec3(R, B, z);
+
+            vec3 euler = emitter.spawn_area.rotation;
+
+            // But use all euler angles because we may want to orient
+            // the rectangle in 3D space
+            mat3 rotation = make_rotation(euler);
+
+            switch (emitter.spawn_area.spawn_distribution) {
+                case SPAWN_DIST_RANDOM: {
+                    float seed_offset_factor = 1.0;
+                    if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+
+                    vec3 point = vec3(
+                        sample_rand(BL.x, BR.x, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false),
+                        sample_rand(BL.y, TL.y, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false),
+                        sample_rand(BL.z, TR.z, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false)
+                    );
+                    start_pos += rotate_point(point, center, rotation);
+
+                    break;
+                }
+                case SPAWN_DIST_OUTWARDS: {
+                    break;
+                }
+                case SPAWN_DIST_INWARDS: {
+                    break;
+                }
+            }
+
+            break;
+        }
+        case AREA_CIRCLE: {
+            vec3 center = emitter.spawn_area.pos;
+            float radius = emitter.spawn_area.size.x;
+            vec3 euler = emitter.spawn_area.rotation;
+            mat3 rotation = make_rotation(euler);
+
+            switch (emitter.spawn_area.spawn_distribution) {
+                case SPAWN_DIST_RANDOM: {
+                    float seed_offset_factor = 1.0;
+                    if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+
+                    float angle = sample_rand(0, 2*PI, emitter.spawn_area.rand_spawn_distribution, particle_seed, false);
+                    float dist = sqrt(sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false)) * radius;
+                    float x = dist * cos(angle);
+                    float y = dist * sin(angle);
+
+                    start_pos += rotate_point(vec3(x, y, 0), center, rotation);
+
+                    break;
+                }
+                case SPAWN_DIST_OUTWARDS: {
+                    break;
+                }
+                case SPAWN_DIST_INWARDS: {
+                    break;
+                }
+            }
+
+            break;
+        }
+        case AREA_SPHERE: {
+            vec3 center = emitter.spawn_area.pos;
+            float radius = emitter.spawn_area.size.x;
+
+            switch (emitter.spawn_area.spawn_distribution) {
+                case SPAWN_DIST_RANDOM: {
+                    float seed_offset_factor = 1.0;
+                    if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+
+                    float theta = sample_rand(0, 2 * PI, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false);
+                    float phi = acos(2 * sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false) - 1);
+                    
+                    vec3 dir = vec3(
+                        sin(phi) * cos(theta),
+                        sin(phi) * sin(theta),
+                        cos(phi)
+                    );
+
+                    float u = sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false);
+                    float dist = radius * sqrt(u);
+
+                    start_pos += dir * dist;
+
+                    break;
+                }
+                case SPAWN_DIST_OUTWARDS: {
+                    break;
+                }
+                case SPAWN_DIST_INWARDS: {
+                    break;
+                }
+            }
+
+            break;
+        }
+        case AREA_CUBE: {
+            vec3 center = emitter.spawn_area.pos;
+            vec3 size = emitter.spawn_area.size;
+            vec3 euler = emitter.spawn_area.rotation;
+            mat3 rotation = make_rotation(euler);
+
+            switch (emitter.spawn_area.spawn_distribution) {
+                case SPAWN_DIST_RANDOM: {
+                    float seed_offset_factor = 1.0;
+                    if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+
+                    vec3 point = vec3(
+                        sample_rand(-size.x / 2.0, size.x / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false),
+                        sample_rand(-size.y / 2.0, size.y / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false),
+                        sample_rand(-size.z / 2.0, size.z / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false)
+                    );
+
+                    start_pos += rotate_point(point, center, rotation);
+
+                    break;
+                }
+                case SPAWN_DIST_OUTWARDS: {
+                    break;
+                }
+                case SPAWN_DIST_INWARDS: {
+                    break;
+                }
+            }
+
+            break;
+        }
+        case AREA_ELLIPSOID: {
+            vec3 center = emitter.spawn_area.pos;
+            vec3 size = emitter.spawn_area.size;
+            vec3 euler = emitter.spawn_area.rotation;
+            mat3 rotation = make_rotation(euler);
+
+            float seed_offset_factor = 1.0;
+            if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+
+            float theta = sample_rand(0, 2 * PI, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false);
+            float phi = acos(2 * sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false) - 1);
+            float u = sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false);
+            float radius = sqrt(u);
+
+            vec3 dir = vec3(
+                radius * sin(phi) * cos(theta),
+                radius * sin(phi) * sin(theta),
+                radius * cos(phi)
+            );
+
+            vec3 point = vec3(
+                dir.x * size.x / 2.0, // x * a
+                dir.y * size.y / 2.0, // y * b
+                dir.z * size.z / 2.0  // z * c
+            );
+
+            start_pos += rotate_point(point, center, rotation);
+            break;
+        }
+        case AREA_POINT: {
+            start_pos += emitter.spawn_area.pos;
+
+            break;
+        }
+        default: {
+            start_pos = vec3(-999);
+            break;
+        }
+    }
 
     p.pos = start_pos + velocity * age;
 
@@ -437,16 +659,9 @@ void main() {
 
 particle_vert_src :: `
 
-// We could use last 3 bits of the particle index to determine
-// which corner this vertex is in, which would cut the memory
-// usage in quarter. 
-layout (location = 0) in int a_particle_index;
-layout (location = 1) in vec3 a_local_pos; // -1 to 1
-
-
 layout (push_constant) uniform Transform_Data {
     mat4 u_proj;
-    mat4 u_view;
+    mat4 u_view; // This guy is cheeky
 };
 
 layout (std140, binding = 0) buffer Emitter_Simulation_Data {
@@ -470,21 +685,49 @@ mat4 translate(vec3 delta)
 }
 
 void main() {
-    Particle p = particles[a_particle_index];
+
+    // #Hack Cheeky.
+    // We want to keep push constant under 128 bytes so we use one of
+    // the 0's in the view matrix to store the index offset.
+    mat4 view = u_view;
+    int index_offset = int(round(view[2][3]));
+    view[2][3] = 0.0;
+
+    int index = (gl_InstanceIndex + index_offset) % NUM_PARTICLES;
+    Particle p = particles[index];
 
     if (p.color.a <= 0.0000001) {
         gl_Position = vec4(0); // Ignore this particle
         return;
     }
 
+    vec3 local_pos;
+
+    // #Incomplete
+    // Only for 2D Quads
+    int local_index = gl_VertexIndex % 6;
+    if (local_index == 0) {
+        local_pos = vec3(-1, -1, 0);  // BL
+    } else if (local_index == 1) {
+        local_pos = vec3(-1, 1, 0);  // TL
+    } else if (local_index == 2) {
+        local_pos = vec3(1, 1, 0);  // TR
+    } else if (local_index == 3) {
+        local_pos = vec3(-1, -1, 0);  // BL
+    } else if (local_index == 4) {
+        local_pos = vec3(1, 1, 0);  // TR
+    } else if (local_index == 5) {
+        local_pos = vec3(1, -1, 0);  // BR
+    }
+
     v_color = p.color;
-    v_local_pos = a_local_pos;
+    v_local_pos = local_pos;
     v_particle_kind = emitter.particle_kind;
 
     if (v_particle_kind == RECTANGLE || v_particle_kind == CIRCLE || v_particle_kind == TRIANGLE || v_particle_kind == TEXTURE) {
-        // gpt joink
-        vec3 camRight = normalize(vec3(u_view[0][0], u_view[1][0], u_view[2][0]));
-        vec3 camUp = normalize(vec3(u_view[0][1], u_view[1][1], u_view[2][1]));
+
+        vec3 camRight = normalize(vec3(view[0][0], view[1][0], view[2][0]));
+        vec3 camUp = normalize(vec3(view[0][1], view[1][1], view[2][1]));
         vec3 camForward = cross(camRight, camUp);
         mat3 billboardRotation = mat3(camRight, camUp, camForward);
     
@@ -496,7 +739,7 @@ void main() {
         sin(rotation),	cos(rotation),  0,
         0, 0, 1);
         
-        vec3 local_pos = rotation_mat * (a_local_pos * p.size);
+        vec3 local_pos = rotation_mat * (local_pos * p.size);
 
         vec3 vert_pos = billboardRotation * local_pos + p.pos;
 
@@ -506,7 +749,7 @@ void main() {
 
         // Now transform to clip space
         gl_Position = u_proj 
-                    * u_view 
+                    * view 
                     * emitter.model 
                     * vec4(vert_pos, 1.0);
     } else {

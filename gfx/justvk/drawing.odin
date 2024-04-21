@@ -309,7 +309,7 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, enabl
     rasterizer.polygonMode = .FILL;
     rasterizer.lineWidth = 1.0;
     rasterizer.cullMode = {};
-    rasterizer.frontFace = {};
+    rasterizer.frontFace = .CLOCKWISE;
     rasterizer.depthBiasEnable = false;
     rasterizer.depthBiasConstantFactor = 0.0;
     rasterizer.depthBiasClamp = 0.0;
@@ -801,7 +801,7 @@ cmd_draw_indexed :: proc(pipeline : ^Pipeline, vbo : ^Vertex_Buffer, ibo : ^Inde
     vbo_offset :vk.DeviceSize= 0;
     vk.CmdBindVertexBuffers(pipeline.command_buffer, 0, 1, &vbo.vk_buffer, &vbo_offset);
     vk.CmdBindIndexBuffer(pipeline.command_buffer, ibo.vk_buffer, cast(vk.DeviceSize)0, .UINT32);
-    vk.CmdDrawIndexed(pipeline.command_buffer, cast(u32)index_count, cast(u32)num_instances, cast(u32)index_offset, 0, cast(u32)first_instance);
+    vk.CmdDrawIndexed(pipeline.command_buffer, cast(u32)index_count, cast(u32)num_instances, cast(u32)index_offset, cast(i32)first_vertex, cast(u32)first_instance);
 }
 
 cmd_clear :: proc(pipeline : ^Pipeline, clear_mask : vk.ImageAspectFlags = { .COLOR }, clear_color := lin.Vector4{0, 0, 0, 1.0}, clear_rect : Maybe(lin.Vector4) = nil) {

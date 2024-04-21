@@ -1,30 +1,18 @@
 # GPU-Accelerated Particle Emitter
 
-![](/repo/emitter_v1_smoke.gif)
-
 Currently in a very early state and in active development.
 
+![](/repo/emitter_v1_smoke.gif)
+
+![](/repo/emitters_spawn_area.gif)
 ---
 Here's a video with more action (click for youtube link):
 
-<a href="https://www.youtube.com/watch?v=ZzpI29KnuVY">
-    <img src="https://img.youtube.com/vi/ZzpI29KnuVY/0.jpg" alt="Youtube Video" style="width: 100%;">
+<a href="https://www.youtube.com/watch?v=RQSNZNkTyAg ">
+    <img src="https://img.youtube.com/vi/RQSNZNkTyAg/1.jpg" alt="Youtube Video" style="width: 100%;">
 </a>
 
 ## TODO LIST
-- Spawn Area
-    - Visualize with gizmos
-    -  Area shapes
-        - Square (p, sz, euler)
-        - Circle (p, sz, euler)
-        - Cube (p, sz, euler)
-        - Sphere (p, euler)
-        - Point (p)
-    - Spawn modes
-        - From center out
-        - From out to center
-        - Random
-        - Some custom thing?
 - Modular properties.
     - Instead of hard-coded properties, we can add/remove any properties which gets compiled into the compute shader. This is not just more performant but also allows for more fine-grained control.
     - Example: If I want particles to start at a certain/random rotation I can make one property for that and then also an interpolation property so all particles rotate the same but look different.
@@ -36,18 +24,25 @@ Here's a video with more action (click for youtube link):
 - Keyframes
     - Not sure yet how to implement this, if per property or per emitter?
     - CSS style keyframes.
+    - Maybe this could just be named % values and properties can select these for
+      begin & start'
+- Look over random distributions (mainly normal & extremes)
 - GLSL code injection
     - Load file with some glsl function to add an extra custom stage in the particle pipeline.
+    - We could inject custom code for spawn stage for more fine-tuned spawning.
 - 3D Particles
     - UV map & texture map?
     - Primitives: sphere, cube, pyramid
     - Custom shape?
     - Model loaded from disk (engine doesn't have model loading yet)
 - Optimize
+    - Something makes emitter a bit slower when looping is enabled
     - Cache computations where possible
-    - Limit "max_particles" to emission_rate * max_lifetime
-    - Don't use highp float?
-    - Something makes it slow if a lot of particles are condensed in a small area
     - Allow explicit sync between compute & draw
-    - Multiple configs for one emitter; shared resources SBO & VBO. 
+    - Multiple configs for one emitter; shared SBO. 
         - Would require explicit synchronization between each compute/draw call
+    - We could give an option when compiling the emitter to use up more vram to cache
+      computations for particles which are the same throughout their lifetime such as
+      constants, start_pos, particle_seed etc. Could drastically improve performance
+      at the cost of a lot of vram when simulating many particles.
+    - We can pack the Particle struct and save a lot of VRAM

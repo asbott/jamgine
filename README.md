@@ -24,6 +24,7 @@ Note: Some implementation pages contain more information and showcases.
 
 (GIF might take a while to load)
 
+![](/repo/emitters_spawn_area.gif)
 ![](/repo/emitter_v1_smoke.gif)
 
 - Implementation: https://github.com/asbott/jamgine/tree/main/gfx/particles
