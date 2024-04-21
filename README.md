@@ -1,11 +1,19 @@
-# Jamgine
+# Introduction
+
 My personal sandbox/portfolio.
 
 I cannot offer you a fancy paper or fancy numbers in my CV, but I can offer  you quality software in a jungle of terrible software getting worse by each passing day.
 
 This project is meant to showcase the real fruits of my efforts and competence in software. 
 
-Everything is made from scratch with one temporary external dependency being shaderc.
+However, if you're not here as a recruiter, feel free to use anything you see. The goal is for everything to be self-contained with the only dependencies being part of the odin standard/vendor packages. Features are designed to be modular, so if you only want to use a single or a couple modules from this library that shouldn't be a problem. See [examples](/examples).
+
+
+# Jamgine
+
+This project can be summarized as a self-contained realtime graphical application engine, mainly designed for video games.
+
+Everything is made from scratch with one temporary external dependency being shaderc. I am currently working on my own glsl to SPIR-v compiler.
 
 Except for shaderc binaries, there are some unimplemented unix functions needed to compile on unix systems (osext/linux).
 
