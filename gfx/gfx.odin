@@ -65,7 +65,8 @@ TURQUOISE   :: lin.Vector4{ 0.25, 0.88, 0.82, 1.0 };
 INDIGO      :: lin.Vector4{ 0.29, 0.0, 0.51, 1.0 };
 VIOLET      :: lin.Vector4{ 0.93, 0.51, 0.93, 1.0 };
 SKY_BLUE    :: lin.Vector4{ 0.53, 0.81, 0.92, 1.0 };
-SOFT_GRAY   :: lin.Vector4{ 0.85, 0.70, 0.75, 1.0 }
+SOFT_GRAY   :: lin.Vector4{ 0.85, 0.70, 0.75, 1.0 };
+CORNFLOWER_BLUE :: lin.Vector4{ 0.392, 0.584, 0.929, 1.0 };
 
 Window_Event :: struct {
     handled : bool,
@@ -124,7 +125,11 @@ CURSOR_CROSSHAIR    : glfw.CursorHandle;
 window_surface : ^jvk.Draw_Surface;
 default_context : runtime.Context;
 clear_color := lin.Vector4{0.2, 0.2, 0.3, 1.0};
- 
+
+should_window_close :: proc() -> bool {
+    return cast(bool)glfw.WindowShouldClose(window);
+}
+
 // Potentially slow. If #Speed is a concern, prefer polling window events
 // for latest framebuffer size instead.
 get_window_size :: proc() -> lin.Vector2 {

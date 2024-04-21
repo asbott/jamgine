@@ -318,7 +318,7 @@ set_render_target :: proc{
     set_render_target_surface,
 }
 
-set_projection_ortho :: proc(L, R, B, T : f32, near :f32= 0.1, far :f32= 10, using ctx := imm_context) {
+set_projection_ortho :: proc(L, R, B, T : f32, near :f32= 0.1, far :f32= 100, using ctx := imm_context) {
     camera.proj = lin.ortho(L,R,B,T,near,far);
 }
 set_projection_perspective :: proc(fov, aspect, near, far : f32, using ctx := imm_context) {
@@ -329,9 +329,9 @@ set_default_2D_camera :: proc(width, height : f32, using ctx := imm_context) {
     set_projection_ortho(0, width, 0, height);
     camera.view = lin.identity(lin.Matrix4) * lin.translate({0, 0, 1});
 }
-set_default_3D_camera :: proc(width, height : f32, using ctx := imm_context) {
-    set_projection_perspective(60, width/height, 0.1, 100);
-    camera.view = lin.identity(lin.Matrix4) * lin.translate({0, 0, 2});
+set_default_3D_camera :: proc(width, height : f32, fov_deg :f32= 60, using ctx := imm_context) {
+    set_projection_perspective(math.RAD_PER_DEG * fov_deg, width / height, 0.1, 1000.0);
+    set_view_look_at({0, 0, -7}, {0, 0, 0}, {0, -1, 0}, ctx);
 }
 
 set_view_look_at :: proc(eye, center, up : lin.Vector3, using ctx := imm_context) {

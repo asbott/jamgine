@@ -1,4 +1,4 @@
-package imm_gui_test
+package emitters_test
 
 import "jamgine:gfx"
 import "jamgine:input"
