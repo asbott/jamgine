@@ -376,7 +376,7 @@ main :: proc() {
 ![](/repo/example_hello_imm_gui.gif)
 
 ### Hello Console
-Integrates the developer conosle into the app.
+Integrates the developer console into the app.
 ```CPP
 package hello_console
 
