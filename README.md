@@ -60,4 +60,4 @@ igui.end_window();
 
 ## Technical points of interest
 - [Vulkan Backend](/gfx/justvk)
-- GLSL [Lexer](/gfx/justvk/glsl_parser.odin), [Parser](/gfx/justvk/glsl_parser.odin) and [Introspection](/gfx/justvk/glsl_inspect.odin)
+- GLSL [Lexer](/gfx/justvk/glsl_lexer.odin), [Parser](/gfx/justvk/glsl_parser.odin) and [Introspection](/gfx/justvk/glsl_inspect.odin)
