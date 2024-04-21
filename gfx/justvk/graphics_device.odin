@@ -178,15 +178,15 @@ rate_graphics_device :: proc(gdevice : Graphics_Device) -> int {
         .CPU = 50,
     };
     for arg in os.args {
-        if arg == "prefer_integrated" do type_scores[.INTEGRATED_GPU] += 1000;
-        if arg == "prefer_discrete" do type_scores[.DISCRETE_GPU] += 1000;
-        if arg == "prefer_virtual" do type_scores[.VIRTUAL_GPU] += 1000;
-        if arg == "prefer_cpu" do type_scores[.CPU] += 1000;
+        if arg == "-prefer-integrated" do type_scores[.INTEGRATED_GPU] += 1000;
+        if arg == "-prefer-discrete" do type_scores[.DISCRETE_GPU] += 1000;
+        if arg == "-prefer-virtual" do type_scores[.VIRTUAL_GPU] += 1000;
+        if arg == "-prefer-cpu" do type_scores[.CPU] += 1000;
 
-        if arg == "force_integrated" do type_scores[.INTEGRATED_GPU] = 9999999999;
-        if arg == "force_discrete" do type_scores[.DISCRETE_GPU] = 9999999999;
-        if arg == "force_virtual" do type_scores[.VIRTUAL_GPU] = 9999999999;
-        if arg == "force_cpu" do type_scores[.CPU] = 9999999999;
+        if arg == "-force-integrated" do type_scores[.INTEGRATED_GPU] = 9999999999;
+        if arg == "-force-discrete" do type_scores[.DISCRETE_GPU] = 9999999999;
+        if arg == "-force-virtual" do type_scores[.VIRTUAL_GPU] = 9999999999;
+        if arg == "-force-cpu" do type_scores[.CPU] = 9999999999;
     }
 
     score += type_scores[gdevice.props.deviceType];
