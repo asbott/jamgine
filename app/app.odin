@@ -147,7 +147,6 @@ FPS: %f `, imm_stats.num_vertices, imm_stats.num_indices, imm_stats.num_scissors
         if config.enable_imm_gui do igui.draw();
         else              do igui.clear_frame(); // Clear gui calls without drawing if not enabled
         console.draw();
-        igui.draw();
 
         gfx.update_window();
 

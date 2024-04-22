@@ -27,7 +27,9 @@ identity :: glsl.identity
 translate   :: proc{ glsl.mat4Translate }
 rotate      :: proc{ glsl.mat4Rotate }
 scale       :: proc{ glsl.mat4Scale }
-perspective :: glsl.mat4Perspective
+
+perspective :: glsl.mat4Perspective;
+
 look_at      :: glsl.mat4LookAt
 //inverse     :: glsl.inverse
 inverse :: proc(m : Matrix4) -> Matrix4 {
@@ -110,3 +112,20 @@ v4_xyzw :: proc(x, y, z, w : f32) -> Vector4 {
 v4_identity :: proc() -> Vector4 { return {0, 0, 0, 0}; }
 v4_scalar :: proc(s : f32) -> Vector4 { return {s, s, s, s}; }
 v4 :: proc{v4_xy,v4_xyz,v4_xyzw,v4_identity,v4_scalar,v4_from_v2, v4_from_v3, v4_from_v2v2, v4_from_v2z, v4_from_v2zw}
+
+m4 :: proc(diag : f32) -> Matrix4 {
+    mat : Matrix4;
+    mat[0][0] = diag;
+    mat[1][1] = diag;
+    mat[2][2] = diag;
+    mat[3][3] = diag;
+    return mat;
+}
+m3 :: proc(diag : f32) -> Matrix3 {
+    mat : Matrix3;
+    mat[0][0] = diag;
+    mat[1][1] = diag;
+    mat[2][2] = diag;
+    return mat;
+}
+

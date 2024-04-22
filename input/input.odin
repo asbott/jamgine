@@ -85,22 +85,32 @@ handle_mouse_move :: proc(x, y : f32) {
 }
 
 is_key_down :: proc(key : c.int, mod : c.int = 0) -> bool {
+    assert(key >= 0 && key < cast(c.int)len(key_states), "Invalid glfw mouse button value");
     return key_states[key] == glfw.PRESS && (true if mod == 0 else mod_flags[mod]);
 }
 is_key_just_pressed :: proc(key : c.int, mod : c.int = 0) -> bool {
+    assert(key >= 0 && key < cast(c.int)len(key_states), "Invalid glfw mouse button value");
     return key_states[key] == glfw.PRESS && last_key_states[key] == glfw.RELEASE && (true if mod == 0 else mod_flags[mod]);
 }
 is_key_just_released :: proc(key : c.int, mod : c.int = 0) -> bool {
+    assert(key >= 0 && key < cast(c.int)len(key_states), "Invalid glfw mouse button value");
     return key_states[key] == glfw.RELEASE && last_key_states[key] == glfw.PRESS && (true if mod == 0 else mod_flags[mod]);
 }
 is_mouse_down :: proc(button : c.int, mod : c.int = 0) -> bool {
+    assert(button >= 0 && button < cast(c.int)len(button_states), "Invalid glfw mouse button value");
     return button_states[button] == glfw.PRESS && (true if mod == 0 else mod_flags[mod]);
 }
 is_mouse_just_pressed :: proc(button : c.int, mod : c.int = 0) -> bool {
+    assert(button >= 0 && button < cast(c.int)len(button_states), "Invalid glfw mouse button value");
     return button_states[button] == glfw.PRESS && last_button_states[button] == glfw.RELEASE && (true if mod == 0 else mod_flags[mod]);
 }
 is_mouse_just_released :: proc(button : c.int, mod : c.int = 0) -> bool {
+    assert(button >= 0 && button < cast(c.int)len(button_states), "Invalid glfw mouse button value");
     return button_states[button] == glfw.RELEASE && last_button_states[button] == glfw.PRESS && (true if mod == 0 else mod_flags[mod]);
+}
+
+is_mod_active :: proc(mod : c.int) -> bool {
+    return mod_flags[mod];
 }
 
 get_mouse_xscroll :: proc() -> f32 {

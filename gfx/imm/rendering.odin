@@ -318,7 +318,7 @@ set_render_target :: proc{
     set_render_target_surface,
 }
 
-set_projection_ortho :: proc(L, R, B, T : f32, near :f32= 0.1, far :f32= 100, using ctx := imm_context) {
+set_projection_ortho :: proc(L, R, B, T : f32, near :f32= -1, far :f32= 100, using ctx := imm_context) {
     camera.proj = lin.ortho(L,R,B,T,near,far);
 }
 set_projection_perspective :: proc(fov, aspect, near, far : f32, using ctx := imm_context) {
@@ -543,11 +543,11 @@ cuboid :: proc(BL, TL, TR, BR, BL2, TL2, TR2, BR2 : lin.Vector3, color := gfx.WH
     start_index := cast(u32)len(ctx.vertices);
 
     rectangle_by_aabb(BL, TL, TR, BR, color, ctx); // Back face
-    rectangle_by_aabb(BL2, TL2, TR2, BR2, color, ctx); // Front face
-    rectangle_by_aabb(BL, TL, TL2, BL2, color, ctx); // Left face
+    rectangle_by_aabb(BR2, TR2, TL2, BL2, color, ctx); // Front face
+    rectangle_by_aabb(BL2, TL2, TL, BL, color, ctx); // Left face
     rectangle_by_aabb(BR, TR, TR2, BR2, color, ctx); // Right face
-    rectangle_by_aabb(BL, BR, BR2, BL2, color, ctx); // Bottom face
-    rectangle_by_aabb(TL, TR, TR2, TL2, color, ctx); // Top face
+    rectangle_by_aabb(BL2, BL, BR, BR2, color, ctx); // Bottom face
+    rectangle_by_aabb(TL, TL2, TR2, TR, color, ctx); // Top face
 
     return vertices[start_index:];
 }
@@ -605,18 +605,18 @@ ellipsoid :: proc(p : lin.Vector3, size : lin.Vector3, color := gfx.WHITE, segme
             v0 := cast(f32)j / cast(f32)segments;
             v1 := cast(f32)(j+1) / cast(f32)segments;
 
-            ellipsoidal_to_cartesian :: proc(p : lin.Vector3, size : lin.Vector3, theta, phi : f32) -> lin.Vector3 {
-                return p + lin.Vector3{
-                    size.x * math.sin(theta) * math.cos(phi),
-                    size.y * math.cos(theta),
-                    size.z * math.sin(theta) * math.sin(phi)
+            ellipsoidal_to_cartesian :: proc(size : lin.Vector3, theta, phi : f32) -> lin.Vector3 {
+                return lin.Vector3{
+                    (size.x * math.sin(theta) * math.cos(phi)),
+                    (size.y * math.cos(theta)),
+                    (size.z * math.sin(theta) * math.sin(phi)),
                 };
             }
 
-            p0 := ellipsoidal_to_cartesian(p, size/2, u0 * math.PI, v0 * 2 * math.PI);
-            p1 := ellipsoidal_to_cartesian(p, size/2, u1 * math.PI, v0 * 2 * math.PI);
-            p2 := ellipsoidal_to_cartesian(p, size/2, u1 * math.PI, v1 * 2 * math.PI);
-            p3 := ellipsoidal_to_cartesian(p, size/2, u0 * math.PI, v1 * 2 * math.PI);
+            p0 := ellipsoidal_to_cartesian(size/2, u0 * math.PI, v0 * 2 * math.PI);
+            p1 := ellipsoidal_to_cartesian(size/2, u1 * math.PI, v0 * 2 * math.PI);
+            p2 := ellipsoidal_to_cartesian(size/2, u1 * math.PI, v1 * 2 * math.PI);
+            p3 := ellipsoidal_to_cartesian(size/2, u0 * math.PI, v1 * 2 * math.PI);
 
             triangle_abc(p + p0, p + p1, p + p2, color, ctx);
             triangle_abc(p + p0, p + p2, p + p3, color, ctx);
@@ -638,18 +638,18 @@ ellipsoid_lined :: proc(p : lin.Vector3, size : lin.Vector3, color := gfx.WHITE,
             v0 := cast(f32)j / cast(f32)segments;
             v1 := cast(f32)(j+1) / cast(f32)segments;
 
-            ellipsoidal_to_cartesian :: proc(p : lin.Vector3, size : lin.Vector3, theta, phi : f32) -> lin.Vector3 {
-                return p + lin.Vector3{
+            ellipsoidal_to_cartesian :: proc(size : lin.Vector3, theta, phi : f32) -> lin.Vector3 {
+                return lin.Vector3{
                     size.x * math.sin(theta) * math.cos(phi),
                     size.y * math.cos(theta),
                     size.z * math.sin(theta) * math.sin(phi)
                 };
             }
 
-            p0 := ellipsoidal_to_cartesian(p, size/2, u0 * math.PI, v0 * 2 * math.PI);
-            p1 := ellipsoidal_to_cartesian(p, size/2, u1 * math.PI, v0 * 2 * math.PI);
-            p2 := ellipsoidal_to_cartesian(p, size/2, u1 * math.PI, v1 * 2 * math.PI);
-            p3 := ellipsoidal_to_cartesian(p, size/2, u0 * math.PI, v1 * 2 * math.PI);
+            p0 := ellipsoidal_to_cartesian(size/2, u0 * math.PI, v0 * 2 * math.PI);
+            p1 := ellipsoidal_to_cartesian(size/2, u1 * math.PI, v0 * 2 * math.PI);
+            p2 := ellipsoidal_to_cartesian(size/2, u1 * math.PI, v1 * 2 * math.PI);
+            p3 := ellipsoidal_to_cartesian(size/2, u0 * math.PI, v1 * 2 * math.PI);
 
             line(p + p0, p + p1, thickness, color, ctx);
             line(p + p1, p + p2, thickness, color, ctx);
@@ -721,25 +721,50 @@ circle :: proc(p : lin.Vector3, radius : f32, color := gfx.WHITE, using ctx := i
 }
 
 line :: proc(p0, p1 : lin.Vector3, thickness :f32= 1, color := gfx.WHITE, using ctx := imm_context) -> []Vertex {
-    dir := lin.normalize(p1 - p0);
 
-    inv_view := lin.inverse(camera.view);
+    is_orthographic := abs(camera.proj[3][3]) == 1.0 && camera.proj[2][3] == 0.0;  // Simple check to guess orthographic projection
 
-    cam_right := inv_view[2][0];
-    cam_up := -inv_view[2][1];
-    cam_forward := inv_view[2][2];
-
-    camera_dir := lin.Vector3{cam_right, cam_up, cam_forward};
+    if is_orthographic {
+        dir := lin.normalize(p1 - p0);
+        right := lin.Vector3{-dir.y, dir.x, 0};
     
-    perp_dir := lin.normalize(lin.cross(dir, camera_dir)) * (thickness / 2.0);
+        right_norm := lin.normalize(right) * (thickness / 2);
     
-    return rectangle_by_aabb(
-        p0 + perp_dir, // BL
-        p0 - perp_dir, // TL
-        p1 - perp_dir, // TR
-        p1 + perp_dir, // BR
-        color=color, ctx=ctx,
-    );
+        BL := p0 - right_norm;
+        TL := p1 - right_norm;
+        TR := p1 + right_norm;
+        BR := p0 + right_norm;
+    
+        return rectangle_by_aabb(
+            BL, TL, TR, BR,
+            color, ctx
+        );
+    } else {
+        view_inv := camera.view;
+        view_pos : lin.Vector3 = (view_inv * lin.Vector4{0, 0, 0, 1}).xyz;
+        dir := p1-p0;
+        view_dir := p0 - view_pos;
+        perp := lin.cross(dir, view_dir);
+    
+        if lin.length(perp) <= 0.0001 {
+            perp = lin.cross(dir, lin.Vector3{0, -1, 0});
+            if lin.length(perp) <= 0.0001 {
+                perp = lin.cross(dir, lin.Vector3{1, 0, 0});
+            }
+        }
+    
+        perp_norm := lin.normalize(perp);
+        
+        BL := p0 - perp_norm * thickness/2;
+        TL := p1 - perp_norm * thickness/2;
+        TR := p1 + perp_norm * thickness/2;
+        BR := p0 + perp_norm * thickness/2;
+    
+        return rectangle_by_aabb(
+            BL, TL, TR, BR,
+            color, ctx
+        );
+    }
 }
 
 text_fast :: proc(text : Rendered_Text, p : lin.Vector3, color := gfx.WHITE, background_color : Maybe(lin.Vector4)= nil, using ctx := imm_context, font := imm_context.default_font) -> (box : lin.Vector4) {

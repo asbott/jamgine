@@ -155,7 +155,6 @@ Emitter_Config :: struct {
     // Need unique names to be serialized correctly
     size     : Particle_Property_Vec3,
     color : Particle_Property_Vec4,
-    position : Particle_Property_Vec3,
     velocity : Particle_Property_Vec3,
     acceleration : Particle_Property_Vec3,
     angular_velocity : Particle_Property_Vec2,
@@ -217,7 +216,6 @@ init_emitter_config :: proc(e : ^Emitter) {
     e.lifetime.seed = rand_seed();
     e.color.seed = rand_seed();
     e.size.seed = rand_seed();
-    e.position.seed = rand_seed();
 
     e.spawn_area.pos = {0, 0, 0};
     e.spawn_area.kind = .AREA_POINT;

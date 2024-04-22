@@ -67,6 +67,8 @@ Any_Property :: union {
 scene : struct {
     emitter : pfx.Emitter,
     orbit : lin.Vector2,
+    orbit_center : lin.Vector3,
+    orbit_pan_speed : f32,
     pan : lin.Vector2,
     cam_distance : f32,
     camera_kind : Camera_Kind,
@@ -93,6 +95,8 @@ init :: proc() -> bool {
 
     orbit = 0;
     cam_distance = 10;
+
+    scene.orbit_pan_speed = 5.0;
 
     serial.bind_struct_data_to_file(&scene, "emitter_test_scene.json", .WRITE_CHANGES_TO_DISK);
 
@@ -135,7 +139,7 @@ simulate_game :: proc() -> bool {
 
     window_size := gfx.get_window_size();
 
-    for e in gfx.window_events {
+    for e,i in gfx.window_events {
         if e.handled do continue;
         #partial switch event in e.variant {
             case gfx.Window_Scroll_Event: {
@@ -158,13 +162,18 @@ simulate_game :: proc() -> bool {
                             pan -= lin.Vector2{plane_width * mouse_delta_factor.x, plane_height * mouse_delta_factor.y} * 100 * math.pow_f32(cam_distance, 1.5);
                         }
                         case .ORBIT_3D: {
-                            orbit.x += mouse_delta.x * 0.01;
-                            orbit.y += (mouse_delta.y * 0.01) * (window_size.y / window_size.x);
+                            if input.is_mod_active(glfw.MOD_SHIFT) {
+                                orbit_center.y += orbit_pan_speed * mouse_delta.y * 0.01;
+                            } else {
+                                orbit.x -= mouse_delta.x * 0.01;
+                                orbit.y -= (mouse_delta.y * 0.01) * (window_size.y / window_size.x);
+                            }
                         }
                     }
                 }
             }
             case gfx.Window_Key_Event: {
+                
                 if event.action == glfw.PRESS && (event.mods & glfw.MOD_CONTROL) != 0{
                     switch event.key {
                         case glfw.KEY_G: {
@@ -182,6 +191,7 @@ simulate_game :: proc() -> bool {
                         case glfw.KEY_R: {
                             pan = {0, 0};
                             orbit = {0, 0};
+                            orbit_center = {0, 0, 0};
                             cam_distance = 10;
                         }
                     }
@@ -189,6 +199,31 @@ simulate_game :: proc() -> bool {
             }
         }
     }
+
+
+    yaw := orbit.x; 
+
+    orbit_pan : lin.Vector3;
+
+    if input.is_key_down(glfw.KEY_A) {
+        orbit_pan.x += -math.cos(yaw);
+        orbit_pan.z += -math.sin(yaw);
+    }
+    if input.is_key_down(glfw.KEY_D) {
+        orbit_pan.x += math.cos(yaw);
+        orbit_pan.z += math.sin(yaw);
+    }
+
+    if input.is_key_down(glfw.KEY_S) {
+        orbit_pan.x += math.sin(yaw);
+        orbit_pan.z += -math.cos(yaw);
+    }
+    if input.is_key_down(glfw.KEY_W) {
+        orbit_pan.x += -math.sin(yaw);
+        orbit_pan.z += math.cos(yaw);
+    }
+
+    orbit_center += orbit_pan * app.delta_seconds * orbit_pan_speed;
     
     return true;
 }
@@ -203,14 +238,13 @@ draw_game :: proc() -> bool {
         case .ORBIT_3D: {
             imm.set_projection_perspective(math.RAD_PER_DEG * FOV, window_size.x / window_size.y, MIN_CLIP, 1000.0);
             yaw := orbit.x;
-            pitch := -orbit.y;
-            center := lin.Vector3{0, 0, 0};
-            cam_pos := center + lin.Vector3{
-                cam_distance * math.sin(yaw) * math.cos(pitch), // X
-                cam_distance * math.sin(pitch),                // Y (in Vulkan, negative Y is up)
-                cam_distance * math.cos(yaw) * math.cos(pitch) // Z
+            pitch := orbit.y;
+            cam_pos := orbit_center + lin.Vector3{
+                cam_distance * math.sin(yaw) * math.cos(pitch),
+                cam_distance * math.sin(pitch),
+                cam_distance * math.cos(yaw) * -math.cos(pitch) 
             };
-            imm.set_view_look_at(cam_pos, center, {0, -1, 0});
+            imm.set_view_look_at(cam_pos, orbit_center, {0, -1, 0});
         }
         case .PANNING_2D: {
             aspect := window_size.x / window_size.y;
@@ -226,8 +260,10 @@ draw_game :: proc() -> bool {
     imm.clear_target(clear_color);
     imm.push_translation({2, 2, 0} if do_draw_gizmos else {-99999, -99999, -999999});
     imm.push_rotation_y(app.elapsed_seconds * 2);
-    imm.rectangle({}, {1, 1}, color=gfx.GREEN);
+    imm.cube({}, {1, 1, 1}, color=gfx.GREEN);
+    imm.sphere({2, 2, 2}, 1, color=gfx.GREEN);
     imm.pop_transforms(2);
+    
     
     if emitter.is_compiled {
         cam := imm.get_current_context().camera;
@@ -236,10 +272,8 @@ draw_game :: proc() -> bool {
         view_inv := lin.inverse(view);
         pfx.draw_emitter(&emitter, proj, view_inv);
     }
-
-    config_before := emitter.config;
-
     
+    config_before := emitter.config;
     
     for window,i in gui_windows {
         if window.show {
@@ -262,6 +296,8 @@ draw_game :: proc() -> bool {
         imm.line(p, p + {length, 0, 0}, color=gfx.RED, thickness=cam_distance/50);
         // Z Axis
         imm.line(p, p + {0, 0, length}, color=gfx.BLUE, thickness=cam_distance/50);
+
+        imm.sphere(orbit_center, cam_distance/100, color=gfx.RED);
     }
 
     imm.flush();
@@ -329,7 +365,11 @@ draw_game :: proc() -> bool {
 do_scene_window :: proc(wnd : ^Gui_Window_Binding) {
     using scene;
     enum_selection("Camera", &camera_kind);
-    igui.label(fmt.tprintf("Orbit: %.2v, Distance: %.2f", orbit, cam_distance));
+    igui.label(fmt.tprint("Orbit:", orbit));
+    igui.label(fmt.tprint("Orbit center:", orbit_center));
+    igui.label(fmt.tprint("2D Pan:", pan));
+
+    igui.f32_drag("Orbit pan speed", &orbit_pan_speed);
 
     igui.f32vec3_drag("Background Color", cast(^lin.Vector3)&clear_color, rate=0.01);
 
@@ -482,7 +522,6 @@ do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
     property_selector(&emitter.angular_acceleration, &emitter.config.angular_acceleration, "Angular Acceleration");
     property_selector(&emitter.rotation, &emitter.config.rotation, "Rotation");
     property_selector(&emitter.size, &emitter.config.size, "Size");
-    property_selector(&emitter.position, &emitter.config.position, "Position");
 
 
     

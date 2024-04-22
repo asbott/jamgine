@@ -90,7 +90,6 @@ struct Emitter_Config {
     
     Property_Vec3 size;
     Property_Vec4 color;
-    Property_Vec3 position;
     Property_Vec3 velocity;
     Property_Vec3 acceleration;
     Property_Vec2 angular_velocity; // yaw, pitch
@@ -451,9 +450,7 @@ void main() {
     mat3 total_rotation = pitch_rotation * yaw_rotation;
     velocity = total_rotation * velocity;
 
-    // #Redundant #Remove
-    // We dont need a position property now that we have a spawn area thing
-    vec3 start_pos = read_property_vec3(emitter.position, particle_seed, life_factor);
+    vec3 start_pos = vec3(0);
 
     switch (emitter.spawn_area.kind) {
         case AREA_RECTANGLE: {
@@ -726,11 +723,10 @@ void main() {
 
     if (v_particle_kind == RECTANGLE || v_particle_kind == CIRCLE || v_particle_kind == TRIANGLE || v_particle_kind == TEXTURE) {
 
-        vec3 camRight = normalize(vec3(view[0][0], view[1][0], view[2][0]));
-        vec3 camUp = normalize(vec3(view[0][1], view[1][1], view[2][1]));
-        vec3 camForward = cross(camRight, camUp);
-        mat3 billboardRotation = mat3(camRight, camUp, camForward);
-    
+        vec3 cam_right = normalize(vec3(view[0][0], view[1][0], view[2][0]));
+        vec3 cam_up = normalize(vec3(view[0][1], view[1][1], view[2][1]));
+        vec3 cam_forw = cross(cam_right, cam_up);
+        mat3 billboard_rotation = mat3(cam_right, -cam_up, cam_forw);
         
         // #Incomplete
         // For 3D particles we use all euler angles
@@ -741,7 +737,7 @@ void main() {
         
         vec3 local_pos = rotation_mat * (local_pos * p.size);
 
-        vec3 vert_pos = billboardRotation * local_pos + p.pos;
+        vec3 vert_pos = billboard_rotation * local_pos + p.pos;
 
         if (emitter.should_only_2D) {
             vert_pos.z = 0;

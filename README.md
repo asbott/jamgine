@@ -71,7 +71,7 @@ Note: Some implementation pages contain more information and showcases.
 
 ### Immediate Mode GUI
 Also seen in the particle emitter showcase.
-```
+```CPP
 igui.begin_window("My Window");
 
 igui.label("Hey there", color=gfx.GREEN);
@@ -131,6 +131,9 @@ main :: proc() {
         if e := gfx.take_window_event(gfx.Window_Key_Event); e != nil {
             if e.action == glfw.PRESS && e.key == glfw.KEY_ESCAPE do running = false;
         }
+
+        // Swap buffers, etc
+        gfx.update_window();
     }
 
     gfx.shutdown();
