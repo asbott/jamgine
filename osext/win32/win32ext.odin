@@ -8,6 +8,7 @@ import "core:unicode/utf16"
 import "core:unicode/utf8"
 import "core:unicode"
 import "core:mem"
+import "core:os"
 import "core:c/libc"
 
 
@@ -48,4 +49,10 @@ get_sys_clipboard_utf8 :: proc(allocator := context.allocator) -> string {
 open_in_explorer :: proc(dir : string) {
     context.allocator = context.temp_allocator;
     ShellExecute(nil, "explore", nil, nil, strings.clone_to_cstring(dir), windows.SW_SHOWDEFAULT);
+}
+
+truncate :: proc(handle : os.Handle, new_end : int) {
+    win32_handle := cast(windows.HANDLE)handle;
+    windows.SetFilePointer(win32_handle, 0, nil, windows.FILE_BEGIN);
+    windows.SetEndOfFile(win32_handle);
 }
