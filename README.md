@@ -26,7 +26,7 @@ I can be reached at charlie.malmqvist1@gmail.com.
 - [Upcoming Features](#upcoming-features)
 
 # Jamgine
-<b>Designed for good programmers.<b>
+<b>Designed for good programmers.</b>
 
 This project can be summarized as a self-contained realtime graphical application engine, mainly designed for video games.
 
