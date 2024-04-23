@@ -1677,14 +1677,13 @@ text_field_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, builder 
         // #Magic
         if caret_x <= L {
             underflow := L - caret_x;
-            text_offset_x = underflow;
-            caret_x += text_offset_x;
+            text_offset_x = -(underflow+6);
         }
-        if (caret_x - 4) > R {
+        if (caret_x) >= (R-6) {
             overflow := caret_x - R;
-            text_offset_x = -overflow;
-            caret_x += text_offset_x;
+            text_offset_x = overflow+6;
         }
+        caret_x -= text_offset_x;
 
         if is_widget_held(ctx) {
             last_x := final_pos.x - display_size.x/2 - text_offset_x;

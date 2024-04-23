@@ -82,6 +82,7 @@ scene : struct {
 current_particle_texture : jvk.Texture;
 current_prop : Any_Property;
 current_prop_name : string;
+emitter_serial_id : serial.Serial_Binding_Id;
 
 init :: proc() -> bool {
     using scene;
@@ -98,7 +99,7 @@ init :: proc() -> bool {
 
     scene.orbit_pan_speed = 5.0;
 
-    serial.bind_struct_data_to_file(&scene, "emitter_test_scene.json", .WRITE_CHANGES_TO_DISK);
+    emitter_serial_id = serial.bind_struct_data_to_file(&scene, "emitter_test_scene.json", .WRITE_CHANGES_TO_DISK);
 
     pfx.compile_emitter(&emitter);
 
@@ -360,7 +361,7 @@ draw_game :: proc() -> bool {
 
     if emitter.is_compiled && config_before != emitter.config {
         pfx.update_emitter_config(&emitter);
-        serial.update_synced_data();
+        serial.sync_one(emitter_serial_id);
     }
 
     return true;
@@ -451,7 +452,7 @@ do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
     
     igui.separator();
 
-    igui.label("Spawn Area");
+    igui.label("Spawning");
     enum_selection("Kind##SpawnArea", &emitter.spawn_area.kind, display_only_last_word=true);
     if emitter.spawn_area.kind != .AREA_POINT {
         enum_selection("Distribution##SpawnArea", &emitter.spawn_area.spawn_distribution, display_only_last_word=true);
@@ -460,6 +461,7 @@ do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
             enum_selection("Rand Per##SpawnArea", &emitter.spawn_area.scalar_or_component_rand);
         }
     }
+    igui.checkbox("Absolute Spawn Position", &emitter.is_start_pos_absolute);
     igui.f32vec3_drag("Position", &emitter.spawn_area.pos, rate=0.05);
 
     line_width := cam_distance / 300;

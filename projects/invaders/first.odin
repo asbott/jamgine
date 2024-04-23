@@ -62,12 +62,12 @@ main :: proc() {
     os2.Kill = proc() {
         context = runtime.default_context();
         fmt.println("Process killed");
-        serial.update_synced_data();
+        serial.sync_all();
     }
     os2.Interrupt = proc() {
         context = runtime.default_context();
         fmt.println("Process Interrupted");
-        serial.update_synced_data();
+        serial.sync_all();
     }
 
     fmt.println("Program started");
@@ -114,7 +114,7 @@ main :: proc() {
         imm.reset_stats();
     }
 
-    serial.update_synced_data();
+    serial.sync_all();
 
     deinit();
 
@@ -846,7 +846,7 @@ bind_commands :: proc() {
         play_zoom_effect(from, to, duration, pattern, interp_in, interp_out);
     });
     console.bind_command("save_editor", proc() {
-        serial.update_synced_data();
+        serial.sync_all();
     });
 }
 

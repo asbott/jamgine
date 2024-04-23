@@ -12,6 +12,7 @@ struct Particle {
     vec4 color;
     vec3 size;
     vec3 rotation;
+    vec3 start_pos;
 };
 
 // Needs to be aligned to 16!
@@ -78,7 +79,7 @@ struct Spawn_Area {
 };
 struct Emitter_Config {
     float emission_rate; // 0-4
-    float pad0; // 4-8
+    bool is_start_pos_absolute; // 4-8
     float seed; // 8-12
     int particle_kind; // 12-16
 
@@ -117,6 +118,7 @@ layout (binding = 2) uniform sampler2D u_random_texture;
 layout(push_constant) uniform Simulation_State {
     float now;
     int first_index;
+    float last_time;
 };
 
 float rand(float seed) {
@@ -410,7 +412,9 @@ void main() {
 
     float life_time = read_property_f32(emitter.lifetime, particle_seed, 1.0);
 
-    // Will loop
+    float now_looped = mod(now, time_when_last_particle_is_emitted);
+    float last_time_looped = mod(last_time, time_when_last_particle_is_emitted);
+
     float age;
     if (emitter.should_loop) {
         age = mod(float(now - emission_time), max(time_when_last_particle_is_emitted, life_time));
@@ -450,199 +454,201 @@ void main() {
     mat3 total_rotation = pitch_rotation * yaw_rotation;
     velocity = total_rotation * velocity;
 
-    vec3 start_pos = vec3(0);
+    if (!emitter.is_start_pos_absolute || ((last_time_looped < emission_time || last_time_looped > now_looped) && now_looped >= emission_time)) {
+        p.start_pos = emitter.spawn_area.pos;
 
-    switch (emitter.spawn_area.kind) {
-        case AREA_RECTANGLE: {
-            // #Speed
-            // This is a lot of computation for each particle every
-            // simulation step even though its going to be the same
-            // each step.
-            
-            vec3 center = emitter.spawn_area.pos;
-            // Ignore z because its 2D
-            // Assume a rectangle facing the z-axis.
-            // Right-handed X and up is Y
-            vec2 size = emitter.spawn_area.size.xy;
+        switch (emitter.spawn_area.kind) {
+            case AREA_RECTANGLE: {
+                // #Speed
+                // This is a lot of computation for each particle every
+                // simulation step even though its going to be the same
+                // each step.
+                
+                vec3 center = emitter.spawn_area.pos;
+                // Ignore z because its 2D
+                // Assume a rectangle facing the z-axis.
+                // Right-handed X and up is Y
+                vec2 size = emitter.spawn_area.size.xy;
 
-            float L = center.x + -size.x / 2.0;
-            float R = center.x + size.x / 2.0;
-            float B = center.y + -size.y / 2.0;
-            float T = center.y + size.y / 2.0;
-            float z = center.z;
+                float L = center.x + -size.x / 2.0;
+                float R = center.x + size.x / 2.0;
+                float B = center.y + -size.y / 2.0;
+                float T = center.y + size.y / 2.0;
+                float z = center.z;
 
-            vec3 BL = vec3(L, B, z);
-            vec3 TL = vec3(L, T, z);
-            vec3 TR = vec3(R, T, z);
-            vec3 BR = vec3(R, B, z);
+                vec3 BL = vec3(L, B, z);
+                vec3 TL = vec3(L, T, z);
+                vec3 TR = vec3(R, T, z);
+                vec3 BR = vec3(R, B, z);
 
-            vec3 euler = emitter.spawn_area.rotation;
+                vec3 euler = emitter.spawn_area.rotation;
 
-            // But use all euler angles because we may want to orient
-            // the rectangle in 3D space
-            mat3 rotation = make_rotation(euler);
+                // But use all euler angles because we may want to orient
+                // the rectangle in 3D space
+                mat3 rotation = make_rotation(euler);
 
-            switch (emitter.spawn_area.spawn_distribution) {
-                case SPAWN_DIST_RANDOM: {
-                    float seed_offset_factor = 1.0;
-                    if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+                switch (emitter.spawn_area.spawn_distribution) {
+                    case SPAWN_DIST_RANDOM: {
+                        float seed_offset_factor = 1.0;
+                        if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
 
-                    vec3 point = vec3(
-                        sample_rand(BL.x, BR.x, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false),
-                        sample_rand(BL.y, TL.y, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false),
-                        sample_rand(BL.z, TR.z, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false)
-                    );
-                    start_pos += rotate_point(point, center, rotation);
+                        vec3 point = vec3(
+                            sample_rand(BL.x, BR.x, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false),
+                            sample_rand(BL.y, TL.y, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false),
+                            sample_rand(BL.z, TR.z, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false)
+                        );
+                        p.start_pos += rotate_point(point, center, rotation);
 
-                    break;
+                        break;
+                    }
+                    case SPAWN_DIST_OUTWARDS: {
+                        break;
+                    }
+                    case SPAWN_DIST_INWARDS: {
+                        break;
+                    }
                 }
-                case SPAWN_DIST_OUTWARDS: {
-                    break;
-                }
-                case SPAWN_DIST_INWARDS: {
-                    break;
-                }
+
+                break;
             }
+            case AREA_CIRCLE: {
+                vec3 center = emitter.spawn_area.pos;
+                float radius = emitter.spawn_area.size.x;
+                vec3 euler = emitter.spawn_area.rotation;
+                mat3 rotation = make_rotation(euler);
 
-            break;
-        }
-        case AREA_CIRCLE: {
-            vec3 center = emitter.spawn_area.pos;
-            float radius = emitter.spawn_area.size.x;
-            vec3 euler = emitter.spawn_area.rotation;
-            mat3 rotation = make_rotation(euler);
+                switch (emitter.spawn_area.spawn_distribution) {
+                    case SPAWN_DIST_RANDOM: {
+                        float seed_offset_factor = 1.0;
+                        if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
 
-            switch (emitter.spawn_area.spawn_distribution) {
-                case SPAWN_DIST_RANDOM: {
-                    float seed_offset_factor = 1.0;
-                    if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+                        float angle = sample_rand(0, 2*PI, emitter.spawn_area.rand_spawn_distribution, particle_seed, false);
+                        float dist = sqrt(sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false)) * radius;
+                        float x = dist * cos(angle);
+                        float y = dist * sin(angle);
 
-                    float angle = sample_rand(0, 2*PI, emitter.spawn_area.rand_spawn_distribution, particle_seed, false);
-                    float dist = sqrt(sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false)) * radius;
-                    float x = dist * cos(angle);
-                    float y = dist * sin(angle);
+                        p.start_pos += rotate_point(vec3(x, y, 0), center, rotation);
 
-                    start_pos += rotate_point(vec3(x, y, 0), center, rotation);
-
-                    break;
+                        break;
+                    }
+                    case SPAWN_DIST_OUTWARDS: {
+                        break;
+                    }
+                    case SPAWN_DIST_INWARDS: {
+                        break;
+                    }
                 }
-                case SPAWN_DIST_OUTWARDS: {
-                    break;
-                }
-                case SPAWN_DIST_INWARDS: {
-                    break;
-                }
+
+                break;
             }
+            case AREA_SPHERE: {
+                vec3 center = emitter.spawn_area.pos;
+                float radius = emitter.spawn_area.size.x;
 
-            break;
-        }
-        case AREA_SPHERE: {
-            vec3 center = emitter.spawn_area.pos;
-            float radius = emitter.spawn_area.size.x;
+                switch (emitter.spawn_area.spawn_distribution) {
+                    case SPAWN_DIST_RANDOM: {
+                        float seed_offset_factor = 1.0;
+                        if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
 
-            switch (emitter.spawn_area.spawn_distribution) {
-                case SPAWN_DIST_RANDOM: {
-                    float seed_offset_factor = 1.0;
-                    if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+                        float theta = sample_rand(0, 2 * PI, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false);
+                        float phi = acos(2 * sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false) - 1);
+                        
+                        vec3 dir = vec3(
+                            sin(phi) * cos(theta),
+                            sin(phi) * sin(theta),
+                            cos(phi)
+                        );
 
-                    float theta = sample_rand(0, 2 * PI, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false);
-                    float phi = acos(2 * sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false) - 1);
-                    
-                    vec3 dir = vec3(
-                        sin(phi) * cos(theta),
-                        sin(phi) * sin(theta),
-                        cos(phi)
-                    );
+                        float u = sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false);
+                        float dist = radius * sqrt(u);
 
-                    float u = sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false);
-                    float dist = radius * sqrt(u);
+                        p.start_pos += dir * dist;
 
-                    start_pos += dir * dist;
-
-                    break;
+                        break;
+                    }
+                    case SPAWN_DIST_OUTWARDS: {
+                        break;
+                    }
+                    case SPAWN_DIST_INWARDS: {
+                        break;
+                    }
                 }
-                case SPAWN_DIST_OUTWARDS: {
-                    break;
-                }
-                case SPAWN_DIST_INWARDS: {
-                    break;
-                }
+
+                break;
             }
+            case AREA_CUBE: {
+                vec3 center = emitter.spawn_area.pos;
+                vec3 size = emitter.spawn_area.size;
+                vec3 euler = emitter.spawn_area.rotation;
+                mat3 rotation = make_rotation(euler);
 
-            break;
-        }
-        case AREA_CUBE: {
-            vec3 center = emitter.spawn_area.pos;
-            vec3 size = emitter.spawn_area.size;
-            vec3 euler = emitter.spawn_area.rotation;
-            mat3 rotation = make_rotation(euler);
+                switch (emitter.spawn_area.spawn_distribution) {
+                    case SPAWN_DIST_RANDOM: {
+                        float seed_offset_factor = 1.0;
+                        if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
 
-            switch (emitter.spawn_area.spawn_distribution) {
-                case SPAWN_DIST_RANDOM: {
-                    float seed_offset_factor = 1.0;
-                    if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+                        vec3 point = vec3(
+                            sample_rand(-size.x / 2.0, size.x / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false),
+                            sample_rand(-size.y / 2.0, size.y / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false),
+                            sample_rand(-size.z / 2.0, size.z / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false)
+                        );
 
-                    vec3 point = vec3(
-                        sample_rand(-size.x / 2.0, size.x / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false),
-                        sample_rand(-size.y / 2.0, size.y / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false),
-                        sample_rand(-size.z / 2.0, size.z / 2.0, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false)
-                    );
+                        p.start_pos += rotate_point(point, center, rotation);
 
-                    start_pos += rotate_point(point, center, rotation);
-
-                    break;
+                        break;
+                    }
+                    case SPAWN_DIST_OUTWARDS: {
+                        break;
+                    }
+                    case SPAWN_DIST_INWARDS: {
+                        break;
+                    }
                 }
-                case SPAWN_DIST_OUTWARDS: {
-                    break;
-                }
-                case SPAWN_DIST_INWARDS: {
-                    break;
-                }
+
+                break;
             }
+            case AREA_ELLIPSOID: {
+                vec3 center = emitter.spawn_area.pos;
+                vec3 size = emitter.spawn_area.size;
+                vec3 euler = emitter.spawn_area.rotation;
+                mat3 rotation = make_rotation(euler);
 
-            break;
-        }
-        case AREA_ELLIPSOID: {
-            vec3 center = emitter.spawn_area.pos;
-            vec3 size = emitter.spawn_area.size;
-            vec3 euler = emitter.spawn_area.rotation;
-            mat3 rotation = make_rotation(euler);
+                float seed_offset_factor = 1.0;
+                if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
 
-            float seed_offset_factor = 1.0;
-            if (emitter.spawn_area.scalar_or_component_rand == SCALAR) seed_offset_factor = 0.0;
+                float theta = sample_rand(0, 2 * PI, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false);
+                float phi = acos(2 * sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false) - 1);
+                float u = sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false);
+                float radius = sqrt(u);
 
-            float theta = sample_rand(0, 2 * PI, emitter.spawn_area.rand_spawn_distribution, particle_seed + 0 * seed_offset_factor, false);
-            float phi = acos(2 * sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 1 * seed_offset_factor, false) - 1);
-            float u = sample_rand(0, 1, emitter.spawn_area.rand_spawn_distribution, particle_seed + 2 * seed_offset_factor, false);
-            float radius = sqrt(u);
+                vec3 dir = vec3(
+                    radius * sin(phi) * cos(theta),
+                    radius * sin(phi) * sin(theta),
+                    radius * cos(phi)
+                );
 
-            vec3 dir = vec3(
-                radius * sin(phi) * cos(theta),
-                radius * sin(phi) * sin(theta),
-                radius * cos(phi)
-            );
+                vec3 point = vec3(
+                    dir.x * size.x / 2.0, // x * a
+                    dir.y * size.y / 2.0, // y * b
+                    dir.z * size.z / 2.0  // z * c
+                );
 
-            vec3 point = vec3(
-                dir.x * size.x / 2.0, // x * a
-                dir.y * size.y / 2.0, // y * b
-                dir.z * size.z / 2.0  // z * c
-            );
+                p.start_pos += rotate_point(point, center, rotation);
+                break;
+            }
+            case AREA_POINT: {
+                p.start_pos += emitter.spawn_area.pos;
 
-            start_pos += rotate_point(point, center, rotation);
-            break;
-        }
-        case AREA_POINT: {
-            start_pos += emitter.spawn_area.pos;
-
-            break;
-        }
-        default: {
-            start_pos = vec3(-999);
-            break;
+                break;
+            }
+            default: {
+                p.start_pos = vec3(-999);
+                break;
+            }
         }
     }
 
-    p.pos = start_pos + velocity * age;
+    p.pos = p.start_pos + velocity * age;
 
     p.size = read_property_vec3(emitter.size, particle_seed, life_factor);
 

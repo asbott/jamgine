@@ -196,7 +196,7 @@ FPS: %f `, imm_stats.num_vertices, imm_stats.num_indices, imm_stats.num_scissors
 
     }
 
-    serial.update_synced_data();
+    serial.sync_all();
 
     if shutdown_proc != nil do shutdown_proc();
 

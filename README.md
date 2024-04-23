@@ -75,13 +75,13 @@ Note: Some implementation pages contain more information and showcases.
 (GIF might take a while to load)
 
 ![](/repo/emitters_spawn_area.gif)
-![](/repo/emitter_v1_smoke.gif)
+![](/repo/emitter_v2_smoke.gif)
 
 - Implementation: https://github.com/asbott/jamgine/tree/main/gfx/particles
 - Test project: https://github.com/asbott/jamgine/tree/main/projects/emitters_test
 
 ### Immediate Mode GUI
-Also seen in the particle emitter showcase.
+Also seen in the particle emitter showcase. 
 ```CPP
 igui.begin_window("My Window");
 

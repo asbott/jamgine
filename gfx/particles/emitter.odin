@@ -20,6 +20,7 @@ Particle :: struct #align(16) {
     using _ : struct #align(16) { color : lin.Vector4 },
     using _ : struct #align(16) { size : lin.Vector3 },
     using _ : struct #align(16) { rotation : lin.Vector3 },
+    using _ : struct #align(16) { start_pos : lin.Vector3 },
 }
 Particle_Vertex :: struct {
     particle_index : i32,
@@ -139,7 +140,7 @@ Spawn_Area :: struct {
 Emitter_Config :: struct {
     // 16-byte block!!
     emission_rate : f32,
-    _ : [4]byte,
+    using _is_start_pos_absolute : struct {is_start_pos_absolute : bool},
     seed : f32,
     particle_kind : Particle_Kind,
     // !!
@@ -181,6 +182,7 @@ Emitter :: struct {
     last_computation_first_index : int,
     last_computation_num_particles : int,
 
+    last_simulate_time : f32,
 
     enable_depth_test : bool,
     enable_depth_write : bool,
@@ -460,8 +462,8 @@ simulate_emitter :: proc(e : ^Emitter) {
         return;
     }
     
-    state := struct {now : f32, first_index : i32} {now, cast(i32)first_index};
-    
+    state := struct {now : f32, first_index : i32, last_time : f32} {now, cast(i32)first_index, e.last_simulate_time};
+    e.last_simulate_time = cast(f32)now;
 
     // #Speed
     // If we could offset the compute we could also limit the dispatched

@@ -37,11 +37,12 @@ Struct_Binding :: struct {
     number_of_last_transferred_bytes : int,
 }
 
+Serial_Binding_Id :: int;
 bindings : [dynamic]Struct_Binding;
 
 
 
-bind_struct_data_to_file :: proc(data : ^$Struct, path : string, sync : Disk_Sync_Kind, start_action : Sync_Start_Action = .COPY_DISK_TO_RAM) where intrinsics.type_is_struct(Struct) {
+bind_struct_data_to_file :: proc(data : ^$Struct, path : string, sync : Disk_Sync_Kind, start_action : Sync_Start_Action = .COPY_DISK_TO_RAM) -> Serial_Binding_Id where intrinsics.type_is_struct(Struct)  {
     if bindings == nil do bindings = make([dynamic]Struct_Binding);
     assert(data != nil, "Nil data cannot be bound to disk");
 
@@ -104,9 +105,11 @@ bind_struct_data_to_file :: proc(data : ^$Struct, path : string, sync : Disk_Syn
     }
 
     append(&bindings, binding);
+
+    return len(bindings)-1;
 }
 
-update_synced_data :: proc() {
+sync_all :: proc() {
     for _, i in bindings {
         binding := &bindings[i];
 
@@ -117,6 +120,20 @@ update_synced_data :: proc() {
 
             case .BOTH_WITH_DISK_PRIORITY, .BOTH_WITH_RAM_PRIORITY, .READ_CHANGES_FROM_DISK: {}
         }       
+    }
+}
+
+sync_one :: proc(id : Serial_Binding_Id) {
+    assert(id >= 0 && id < len(bindings), "Invalid serial ID");
+
+    binding := &bindings[id];
+
+    switch binding.sync {
+        case .WRITE_CHANGES_TO_DISK: {
+            write_struct_to_file(binding);
+        }
+
+        case .BOTH_WITH_DISK_PRIORITY, .BOTH_WITH_RAM_PRIORITY, .READ_CHANGES_FROM_DISK: {}
     }
 }
 

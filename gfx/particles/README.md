@@ -2,7 +2,7 @@
 
 Currently in a very early state and in active development.
 
-![](/repo/emitter_v1_smoke.gif)
+![](/repo/emitter_v2_smoke.gif)
 
 ![](/repo/emitters_spawn_area.gif)
 ---
