@@ -23,6 +23,7 @@ I can be reached at charlie.malmqvist1@gmail.com.
 
 ## Table of contents
 - [Build & Run](#build--run)
+- [Note on self-containedness](#note-on-self-containedness)
 - [Points of Interest](#points-of-interest)
 - [Technical Points of Interest](#technical-points-of-interest)
 - [Code Examples](#some-examples)
@@ -32,6 +33,7 @@ I can be reached at charlie.malmqvist1@gmail.com.
     - [Hello imm_gui](#hello-imm_gui)
     - [Hello Console](#hello-console)
     - [Hello Everything](#hello-everything) (App configuration)
+- [Upcoming Features](#upcoming-features)
 
 ## Build & Run
 If you want to run this project you would need to be on a x64 Windows system because I'm using precompiled binaries for shaderc. The plan is to replace shaderc with my own GLSL compiler, making this project entirely self-contained.
@@ -56,6 +58,14 @@ You can tell the engine to prioritize targetting some type of GPU over another w
 -force-cpu
 ```
 `prefer` simply boosts the "score" for the respective GPU type in the GPU selection algorithm while `force` guarantees to select a GPU of that type if possible.
+
+## Note on self-containedness
+This project aims to be completely self-contained but it's not 100% so just yet.
+The one glaring problem at the moment is the shaderc dependency which currently limits us to modern x64 windows systems. I will reiterate that a self-contained glsl to spirv compiler is in the works but that's not likely to be ready any time soon.
+Other than that, there are dependencies on odin packages from the standard vendor library. Thanks to Odin, this is not really a big issue but the idea is to be free from these dependencies as well. Such dependencies are:
+- miniaudio
+- Vulkan loader
+- glfw
 
 ## Points of interest
 Note: Some implementation pages contain more information and showcases.
@@ -525,3 +535,20 @@ draw_app :: proc() -> bool {
 
 ```
 ![](/repo/example_hello_everything.gif)
+
+## Upcoming features
+- Audio playback library (miniaudio backend)
+- Basic 3D models (v1)
+    - .obj loading
+    - Mesh animation
+- Basic 3D rendering techniques
+    - blinn-phong, basic casters
+    - PBR?
+    - Shadowmapping
+    - Light baking
+- Asset catalougues 
+    - Hot reloading
+- Demo FPS game
+- Self-contained GLSL to spv compiler
+- Technical improvements
+    - Fast global allocator
