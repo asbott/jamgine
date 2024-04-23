@@ -537,7 +537,7 @@ draw_app :: proc() -> bool {
 ```
 ![](/repo/example_hello_everything.gif)
 
-## Upcoming features
+## Upcoming
 - Audio playback library (miniaudio backend)
 - Basic 3D models (v1)
     - .obj loading
