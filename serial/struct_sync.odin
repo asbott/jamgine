@@ -13,6 +13,8 @@ import "core:builtin"
 import "core:strings"
 import "core:path/filepath"
 
+import "jamgine:osext"
+
 Disk_Sync_Kind :: enum {
     WRITE_CHANGES_TO_DISK,
     READ_CHANGES_FROM_DISK,
@@ -29,7 +31,6 @@ Struct_Binding :: struct {
     struct_info_base : ^reflect.Type_Info,
     struct_info : reflect.Type_Info_Struct,
     ptr : rawptr,
-    last_transferred_data : rawptr,
     file_handle : os.Handle,
     path : string,
     sync : Disk_Sync_Kind,
@@ -70,8 +71,6 @@ bind_struct_data_to_file :: proc(data : ^$Struct, path : string, sync : Disk_Syn
         if err == os.ERROR_NONE do os.close(f);
     }
 
-    
-
     if start_action == .COPY_DISK_TO_RAM {
         file_err : os.Errno = os.ERROR_NOT_ENOUGH_MEMORY;
         attempts := 0;
@@ -79,34 +78,26 @@ bind_struct_data_to_file :: proc(data : ^$Struct, path : string, sync : Disk_Syn
             binding.file_handle, file_err = os.open(path, os.O_RDONLY);
             attempts += 1;
         }
+        
         assert(file_err == os.ERROR_NONE, fmt.tprintf("Failed opening file for binding struct data '%s'", path));
 
         read_struct_from_file(&binding);
 
-        os.close(binding.file_handle);
-        
         write_struct_to_file(&binding);
+
+        os.close(binding.file_handle);
+
     } else if start_action != .NOTHING do panic("unimplemented"); // #Incomplete
 
     switch sync {
         case .WRITE_CHANGES_TO_DISK: {
-            if os.exists(path) do os.remove(path);
             file_err : os.Errno = os.ERROR_NOT_ENOUGH_MEMORY;
             attempts := 0;
             for file_err != os.ERROR_NONE && attempts < MAX_ATTEMPTS {
-                binding.file_handle, file_err = os.open(path, os.O_WRONLY | os.O_CREATE);
+                binding.file_handle, file_err = os.open(path, os.O_WRONLY);
                 attempts += 1;
             }
             assert(file_err == os.ERROR_NONE, fmt.tprintf("Failed opening file for binding struct data '%s'", path));
-
-            alloc_err : mem.Allocator_Error;
-            binding.last_transferred_data, alloc_err = mem.alloc(size_of(Struct));
-
-            //sz, sz_err := os.file_size(binding.file_handle);
-            //binding.number_of_last_transferred_bytes = cast(int)sz;
-            //assert(file_err == os.ERROR_NONE);
-
-            assert(alloc_err == .None);
         }
         case .BOTH_WITH_DISK_PRIORITY, .BOTH_WITH_RAM_PRIORITY, .READ_CHANGES_FROM_DISK: {
             panic("unimplemented"); // #Incomplete
@@ -120,18 +111,9 @@ update_synced_data :: proc() {
     for _, i in bindings {
         binding := &bindings[i];
 
-        struct_size := binding.struct_info_base.size;
-        now := binding.ptr;
-        last := binding.last_transferred_data;
-
         switch binding.sync {
             case .WRITE_CHANGES_TO_DISK: {
-                need_write := false;
-                if mem.compare_ptrs(binding.ptr, binding.last_transferred_data, struct_size) != 0 do need_write = true;
-
-                if need_write {                    
-                    write_struct_to_file(binding);
-                }
+                write_struct_to_file(binding);
             }
 
             case .BOTH_WITH_DISK_PRIORITY, .BOTH_WITH_RAM_PRIORITY, .READ_CHANGES_FROM_DISK: {}
@@ -143,24 +125,14 @@ update_synced_data :: proc() {
 write_struct_to_file :: proc(binding : ^Struct_Binding) {
     struct_size := binding.struct_info_base.size;
     os.seek(binding.file_handle, 0, 0);
-    if binding.number_of_last_transferred_bytes > 0 {
-        zero_bytes, err := mem.alloc_bytes(binding.number_of_last_transferred_bytes, allocator=context.temp_allocator);
-        assert(err == .None);
-        
-        os.write_ptr(binding.file_handle, builtin.raw_data(zero_bytes), binding.number_of_last_transferred_bytes);        
-        os.seek(binding.file_handle, 0, 0);
-    }
+    
     obj := binding_to_json_object(binding);
 
-    // The marshaller writes to many decimal places which makes the
-    // parser parse it incorrectly....... 
-    /*opts : json.Marshal_Options;
-    opts.spec = .SJSON;
-    marshalled, merr := json.marshal(obj, opts, allocator=context.temp_allocator);
-    assert(merr == nil, "Marshalling json failed for some reason");
-    to_write := string(marshalled);*/
-
     to_write := tprint_json_obj(obj);
+
+    // Win32: SetFilePointer and SetEndOfFile
+    // Unix: ftruncate
+    osext.clear_file(binding.file_handle);
 
     os.write_string(binding.file_handle, to_write);
     binding.number_of_last_transferred_bytes = len(to_write);

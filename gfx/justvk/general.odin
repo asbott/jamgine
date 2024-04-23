@@ -424,7 +424,7 @@ check_vk_result :: proc(res : vk.Result, loc := #caller_location) -> vk.Result {
     return res;
 }
 
-init :: proc(application_name := "Vulkan Game App") -> bool {
+init :: proc(application_name := "Vulkan App") -> bool {
     // Load basic procs for creating instance
     vk.load_proc_addresses_global(cast(rawptr)glfw.GetInstanceProcAddress);
     
@@ -432,7 +432,7 @@ init :: proc(application_name := "Vulkan Game App") -> bool {
     app_info.sType = .APPLICATION_INFO;
     app_info.pApplicationName = strings.clone_to_cstring(application_name, allocator=context.temp_allocator);
     app_info.applicationVersion = vk.MAKE_VERSION(1, 0, 0);
-    app_info.pEngineName = "Jamgine Vulkan Renderer";
+    app_info.pEngineName = "Jamgine";
     app_info.engineVersion = vk.MAKE_VERSION(1, 0, 0);
     app_info.apiVersion = vk.API_VERSION_1_3;
 

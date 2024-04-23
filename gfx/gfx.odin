@@ -183,7 +183,7 @@ set_window_event_callbacks :: proc() {
     });
 }
 
-init_and_open_window :: proc(title : cstring = "JAMGINE GAME by CMQV", width := 1280, height := 720, enable_depth_test := false) -> bool {
+init_and_open_window :: proc(title : cstring = "JAMGINE APP by CMQV", width := 1280, height := 720, enable_depth_test := false) -> bool {
 
     
     if glfw.Init() != true {
@@ -193,7 +193,7 @@ init_and_open_window :: proc(title : cstring = "JAMGINE GAME by CMQV", width := 
     
     glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API);
     window = glfw.CreateWindow(cast(i32)width, cast(i32)height, title, nil, nil);
-    jvk_init_result := jvk.init();
+    jvk_init_result := jvk.init(string(title));
     assert(jvk_init_result, "Failed initializing jvk");
     //devices : []jvk.Graphics_Device={{}, {}}; // #Temporary #Debug
     //jvk.get_all_graphics_devices(&devices);

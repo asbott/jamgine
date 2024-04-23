@@ -13,6 +13,7 @@ import "core:fmt"
 import "core:time"
 import "core:mem"
 import "core:os"
+import "core:strings"
 
 import "vendor:glfw"
 
@@ -29,10 +30,16 @@ want_restart := false;
 App_Config :: struct {
     should_draw_stats : bool,
     enable_imm_gui : bool,
+    do_clear_window : bool,
+    window_clear_color : lin.Vector4,
     
     enable_depth_test : bool,
-
+    
     do_serialize_config : bool,
+    
+    using noserialize : struct {
+        name : string,
+    },
 }
 config : App_Config;
 
@@ -49,7 +56,9 @@ run :: proc() {
 
     context.logger = console.create_console_logger();
 
-    gfx.init_and_open_window("Jamgine App", enable_depth_test=config.enable_depth_test);
+    window_name : cstring = "Jamgine App";
+    if config.name != "" do window_name = strings.clone_to_cstring(config.name);
+    gfx.init_and_open_window(window_name, enable_depth_test=config.enable_depth_test);
 
     imm.init();
     imm.make_and_set_context();
@@ -83,6 +92,8 @@ run :: proc() {
         config.should_draw_stats = false;
         config.enable_imm_gui = false;
     }
+    config.do_clear_window = true;
+    config.window_clear_color = gfx.CORNFLOWER_BLUE;
 
     if init_proc != nil && !init_proc() do running = false;
 
@@ -114,6 +125,12 @@ run :: proc() {
             break;
         }
         
+        if config.do_clear_window {
+            imm.set_render_target(gfx.window_surface);
+            imm.begin2d();
+            imm.clear_target(config.window_clear_color)
+            imm.flush();
+        }
         
         if draw_proc != nil && !draw_proc() {
             running = false;
