@@ -538,14 +538,16 @@ draw_app :: proc() -> bool {
 
 ## Upcoming features
 - Audio playback library (miniaudio backend)
+- Better imm_gui styling
 - Basic 3D models (v1)
     - .obj loading
     - Mesh animation
 - Basic 3D rendering techniques
+    - Instanced, static/dynamic
     - blinn-phong, basic casters
     - PBR?
     - Shadowmapping
-    - Light baking
+    - Light & shadow baking
 - Asset catalougues 
     - Hot reloading
 - [Emitter optimizations](/gfx/particles/README.md#todo-list)
