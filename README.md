@@ -548,7 +548,12 @@ draw_app :: proc() -> bool {
     - Light baking
 - Asset catalougues 
     - Hot reloading
-- Demo FPS game
+- [Emitter optimizations](/gfx/particles/README.md#todo-list)
+- Demo/Showcase FPS game
 - Self-contained GLSL to spv compiler
 - Technical improvements
     - Fast global allocator
+    - Window system win32 backend
+    - WASAPI backend
+    - Fallback backends glfw/miniaudio
+    - Unix support
