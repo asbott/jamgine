@@ -10,6 +10,7 @@ import "jamgine:serial"
 import "jamgine:lin"
 
 import "core:fmt"
+import "core:log"
 import "core:time"
 import "core:mem"
 import "core:os"
@@ -36,6 +37,8 @@ App_Config :: struct {
     enable_depth_test : bool,
     
     do_serialize_config : bool,
+    do_serialize_gui_style : bool,
+    do_use_default_gui_style : bool,
     
     using noserialize : struct {
         name : string,
@@ -94,11 +97,32 @@ run :: proc() {
     }
     config.do_clear_window = true;
     config.window_clear_color = gfx.CORNFLOWER_BLUE;
+    config.do_use_default_gui_style = true;
 
     if init_proc != nil && !init_proc() do running = false;
 
+    if config.do_use_default_gui_style {
+        default_style_path := "";
+        if os.is_file("default_style.json") {
+            default_style_path = "default_style.json"
+        } else if os.is_file("../default_style.json") {
+            default_style_path = "../default_style.json"
+        } else if os.is_file("../../default_style.json") {
+            default_style_path = "../../default_style.json"
+        }
+
+        if default_style_path != "" {
+            style, ok := serial.json_file_to_struct(default_style_path, igui.Gui_Style);
+            if ok do igui.get_current_context().style = style;
+            else do log.error("Could not find default_style.json");
+        }
+    }
+
     if config.do_serialize_config {
         serial.bind_struct_data_to_file(&config, "config.json", .WRITE_CHANGES_TO_DISK);
+    }
+    if config.do_serialize_gui_style {
+        serial.bind_struct_data_to_file(&igui.get_current_context().style, "gui_style.json", .WRITE_CHANGES_TO_DISK);
     }
 
     time.stopwatch_start(&frame_stopwatch);

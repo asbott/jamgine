@@ -40,6 +40,9 @@ Above code results in:
     - Smooth caret
     - Text select with mouse or SHIFT+left/right 
     - Clipboard copy, paste, cut
+- Fix speed in debug builds
+    - I suspect cache locality is a big issue here, so it might be improved once we have better general memory management.
+    - Extra lag after clicking a window with a lot of widgets (not as much before).
 - Smooth scroll
 - Scroll sliders/drags?
 - HSV color picker widget
@@ -49,9 +52,8 @@ Above code results in:
 - Angle picker (Circle with line, drag, display degrees)
 - Click on slider should move handle there
 - Text box
-- Stylize widgets
-- Style editor
 - Fix Bugs/Issues
+    - Text field h scrolling stopped working
     - Resize areas blocked by scrollbars
     - Mouse scroll blocked when any widget hovered (use CAPTURE_SCROLL flag)
     - Int drags are wonky (no decimal place interpolation)
@@ -63,7 +65,7 @@ Above code results in:
     - Make text labels cause overflow (expand content min/max).
     - Does lots of unecessary draw commands. Optimize.
         - If we give imm_gui its own Imm context it could have a pipeline active the whole
-          frame and we wouldnt need to defer draw commands and can isntead draw directly
+          frame and we wouldnt need to defer draw commands and can instead draw directly
           to a render target which itself is drawn to screen with draw().
     - Columns waste space on right. More noticable with many columns.
     - Column spacing overall is off

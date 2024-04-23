@@ -112,6 +112,10 @@ init :: proc() -> bool {
         {"Property Editor", true, do_property_window, nil, false},
     });
 
+    console.bind_command("draw_gizmos", proc(yesno : bool) {
+        scene.do_draw_gizmos = yesno;
+    });
+
     return true;
 }
 shutdown :: proc() -> bool {
@@ -379,8 +383,25 @@ do_scene_window :: proc(wnd : ^Gui_Window_Binding) {
 do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
     using scene;
     
-
     igui.columns(3);
+
+    @(static)
+    path : string;
+    igui.text_field("File##EmitterEditor", &path);
+
+    if igui.button("Load##EmitterEditor") {
+        if os.is_file(path) {
+            current := emitter.noserialize;
+            ok : bool;
+            emitter, ok = serial.json_file_to_struct(path, pfx.Emitter);
+            if !ok do log.error("Could not load json from file", path);
+            emitter.noserialize = current;
+        }
+    }
+    if igui.button("Save##EmitterEditor") {
+        serial.struct_to_json_file(emitter, path);
+    }
+
     if igui.button("Compile") {
         pfx.compile_emitter(&emitter);
     }
@@ -401,6 +422,8 @@ do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
     igui.int_drag("Max Particles (!)", &emitter.max_particles, min=1);
     igui.f32_drag("Emission Rate", &emitter.emission_rate, min=0.001);
     igui.f32_drag("Seed##Emitter", &emitter.seed, rate=1);
+
+    
 
     igui.columns(2);
 
@@ -547,7 +570,7 @@ do_property_window :: proc(wnd : ^Gui_Window_Binding) {
             vec3_property(current_prop_name, prop);
         }
         case ^pfx.Particle_Property_Vec4: {
-            vec4_property(current_prop_name, prop);
+            vec4_property(current_prop_name, prop, color=true);
         }
     }
 }
@@ -672,13 +695,15 @@ vec3_property :: proc(name : string, prop : ^pfx.Particle_Property_Vec3, min : M
         }
     }
 }
-vec4_property :: proc(name : string, prop : ^pfx.Particle_Property_Vec4, min : Maybe(f32) = nil, max : Maybe(f32) = nil) {
+vec4_property :: proc(name : string, prop : ^pfx.Particle_Property_Vec4, min : Maybe(f32) = nil, max : Maybe(f32) = nil, color := false) {
     
+    widget_proc := igui.f32vec4_drag if !color else igui.f32rgba_drag;
+
     igui.label(name);
     enum_selection(fmt.tprintf("Property type##%s", name), &prop.kind);
     switch prop.kind {
         case .CONSTANT: {
-            igui.f32vec4_drag(fmt.tprint("Constant Value##", name), &prop.value1, rate=0.05);
+            widget_proc(fmt.tprint("Constant Value##", name), &prop.value1, rate=0.05);
         }
         case .RANDOM: {
             enum_selection(fmt.tprintf("Distribution##%s", name), &prop.distribution);
@@ -688,13 +713,13 @@ vec4_property :: proc(name : string, prop : ^pfx.Particle_Property_Vec4, min : M
             if igui.button(fmt.tprint("Randomize##", name)) do prop.seed = pfx.rand_seed();
             igui.columns(1);
             igui.checkbox("Soft-lock range", &prop.soft_lock_rand_range);
-            igui.f32vec4_drag(fmt.tprint("min##", name), &prop.value1, rate=0.05);
-            igui.f32vec4_drag(fmt.tprint("max##", name), &prop.value2, rate=0.05);
+            widget_proc(fmt.tprint("min##", name), &prop.value1, rate=0.05);
+            widget_proc(fmt.tprint("max##", name), &prop.value2, rate=0.05);
         }
         case .INTERPOLATE: {
             enum_selection(fmt.tprintf("Interpolation Curve##%s", name), &prop.interp_kind);
-            igui.f32vec4_drag(fmt.tprint("from##", name), &prop.value1, rate=0.05);
-            igui.f32vec4_drag(fmt.tprint("to##", name), &prop.value2, rate=0.05);
+            widget_proc(fmt.tprint("from##", name), &prop.value1, rate=0.05);
+            widget_proc(fmt.tprint("to##", name), &prop.value2, rate=0.05);
         }
     }
 }

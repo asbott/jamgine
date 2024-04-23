@@ -8,20 +8,10 @@ This project is meant to showcase the real fruits of my efforts and competence i
 
 However, if you're not here as a recruiter, feel free to use anything you see. The goal is for everything to be self-contained with the only dependencies being part of the odin standard/vendor packages. Features are designed to be modular, so if you only want to use a single or a couple modules from this library that shouldn't be a problem. See [examples](/examples).
 
-
-# Jamgine
-
-This project can be summarized as a self-contained realtime graphical application engine, mainly designed for video games.
-
-Everything is made from scratch with one temporary external dependency being shaderc. I am currently working on my own glsl to SPIR-v compiler.
-
-Except for shaderc binaries, there are some unimplemented unix functions needed to compile on unix systems (osext/linux).
-
-Vulkan backend is tested with a RTX 3060 Laptop GPU as well as 11th gen intel i5 integrated graphics.
-
 I can be reached at charlie.malmqvist1@gmail.com.
 
 ## Table of contents
+- [Jamgine](#jamgine)
 - [Build & Run](#build--run)
 - [Note on self-containedness](#note-on-self-containedness)
 - [Points of Interest](#points-of-interest)
@@ -34,6 +24,17 @@ I can be reached at charlie.malmqvist1@gmail.com.
     - [Hello Console](#hello-console)
     - [Hello Everything](#hello-everything) (App configuration)
 - [Upcoming Features](#upcoming-features)
+
+# Jamgine
+<b>Designed for good programmers.<b>
+
+This project can be summarized as a self-contained realtime graphical application engine, mainly designed for video games.
+
+Everything is made from scratch with one temporary external dependency being shaderc. I am currently working on my own glsl to SPIR-v compiler.
+
+Except for shaderc binaries, there are some unimplemented unix functions needed to compile on unix systems (osext/linux).
+
+Vulkan backend is tested with a RTX 3060 Laptop GPU as well as 11th gen intel i5 integrated graphics.
 
 ## Build & Run
 If you want to run this project you would need to be on a x64 Windows system because I'm using precompiled binaries for shaderc. The plan is to replace shaderc with my own GLSL compiler, making this project entirely self-contained.
@@ -96,7 +97,7 @@ if igui.button("Unset") {
 
 igui.end_window();
 ``` 
-![](/repo/simple_example.gif)
+![](/repo/simple_example.gif) 
 
 - Implementation: https://github.com/asbott/jamgine/tree/main/gfx/imm/gui
 - Test project: https://github.com/asbott/jamgine/tree/main/projects/imm_gui_test
@@ -538,7 +539,6 @@ draw_app :: proc() -> bool {
 
 ## Upcoming features
 - Audio playback library (miniaudio backend)
-- Better imm_gui styling
 - Basic 3D models (v1)
     - .obj loading
     - Mesh animation

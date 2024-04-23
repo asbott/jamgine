@@ -771,8 +771,11 @@ text_fast :: proc(text : Rendered_Text, p : lin.Vector3, color := gfx.WHITE, bac
     rectangle(p, text.size, ctx, color, text.atlas_texture, text.uv_range, vertex_type=VERTEX_TYPE_TEXT);
     return {p.x, p.y, text.size.x, text.size.y};
 }
-text_slow :: proc(str : string, p : lin.Vector3, color := gfx.WHITE, background_color : Maybe(lin.Vector4)= nil, using ctx := imm_context, font := imm_context.default_font) -> (box : lin.Vector4) {
-    text_size := gfxtext.measure(font, str);
+text_slow :: proc(str : string, p : lin.Vector3, color := gfx.WHITE, background_color : Maybe(lin.Vector4)= nil, cached_measure : Maybe(lin.Vector2) = nil, using ctx := imm_context, font := imm_context.default_font) -> (box : lin.Vector4) {
+    text_size : lin.Vector2;
+
+    if cached_measure == nil do text_size = gfxtext.measure(font, str);
+    else                     do text_size = cached_measure.(lin.Vector2);
 
     if background_color != nil {
         rectangle(p, text_size, color=background_color.(lin.Vector4));
