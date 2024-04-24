@@ -539,14 +539,16 @@ do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
         }
     }
 
-    property_selector(&emitter.lifetime, &emitter.config.lifetime, "Lifetime");
-    property_selector(&emitter.color, &emitter.config.color, "Color");
-    property_selector(&emitter.velocity, &emitter.config.velocity, "Velocity");
-    property_selector(&emitter.acceleration, &emitter.config.acceleration, "Acceleration");
-    property_selector(&emitter.angular_velocity, &emitter.config.angular_velocity, "Angular Velocity");
-    property_selector(&emitter.angular_acceleration, &emitter.config.angular_acceleration, "Angular Acceleration");
-    property_selector(&emitter.rotation, &emitter.config.rotation, "Rotation");
-    property_selector(&emitter.size, &emitter.config.size, "Size");
+    property_selector(&emitter.lifetime, &emitter.lifetime.base, "Lifetime");
+    property_selector(&emitter.color, &emitter.color.base, "Color");
+    property_selector(&emitter.velocity, &emitter.velocity.base, "Velocity");
+    property_selector(&emitter.acceleration, &emitter.acceleration.base, "Acceleration");
+    property_selector(&emitter.angular_velocity, &emitter.angular_velocity.base, "Angular Velocity");
+    property_selector(&emitter.angular_acceleration, &emitter.angular_acceleration.base, "Angular Acceleration");
+    property_selector(&emitter.rotation, &emitter.rotation.base, "Rotation");
+    property_selector(&emitter.rotation_velocity, &emitter.rotation_velocity.base, "Rotation Velocity");
+    property_selector(&emitter.rotation_acceleration, &emitter.rotation_acceleration.base, "Rotation Acceleration");
+    property_selector(&emitter.size, &emitter.size.base, "Size");
 
 
     
@@ -578,7 +580,7 @@ do_property_window :: proc(wnd : ^Gui_Window_Binding) {
 }
 
 
-property_selector :: proc(any_prop : Any_Property, base : pfx.Particle_Property_Base, name : string) {
+property_selector :: proc(any_prop : Any_Property, base : ^pfx.Particle_Property_Base, name : string) {
     igui.separator();
     igui.label(fmt.tprint(name, ": ", base.kind));
     if igui.button(fmt.tprint("Edit##", name)) {

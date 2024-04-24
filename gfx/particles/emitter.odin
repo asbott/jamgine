@@ -161,6 +161,8 @@ Emitter_Config :: struct {
     angular_velocity : Particle_Property_Vec2,
     angular_acceleration : Particle_Property_Vec2,
     rotation : Particle_Property_Vec3,
+    rotation_velocity : Particle_Property_Vec3,
+    rotation_acceleration : Particle_Property_Vec3,
     lifetime : Particle_Property_F32,
 
 

@@ -96,6 +96,8 @@ struct Emitter_Config {
     Property_Vec2 angular_velocity; // yaw, pitch
     Property_Vec2 angular_acceleration; // yaw, pitch
     Property_Vec3 rotation;
+    Property_Vec3 rotation_velocity;
+    Property_Vec3 rotation_acceleration;
     Property_F32 lifetime;
 
 
@@ -637,8 +639,6 @@ void main() {
                 break;
             }
             case AREA_POINT: {
-                p.start_pos += emitter.spawn_area.pos;
-
                 break;
             }
             default: {
@@ -654,7 +654,12 @@ void main() {
 
     p.color = read_property_vec4(emitter.color, particle_seed, life_factor);
 
-    p.rotation = read_property_vec3(emitter.rotation, particle_seed, life_factor);
+    vec3 start_rotation = read_property_vec3(emitter.rotation, particle_seed, life_factor);
+    vec3 rotation_velocity = read_property_vec3(emitter.rotation_velocity, particle_seed, life_factor);
+    vec3 rotation_acceleration = read_property_vec3(emitter.rotation_acceleration, particle_seed, life_factor);
+    rotation_velocity += rotation_acceleration * age;
+
+    p.rotation = start_rotation + rotation_velocity * age;
 
     particles[idx] = p;
 }

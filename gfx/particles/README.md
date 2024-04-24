@@ -17,8 +17,8 @@ Here's a video with more action (click for youtube link):
     - Instead of hard-coded properties, we can add/remove any properties which gets compiled into the compute shader. This is not just more performant but also allows for more fine-grained control.
     - Example: If I want particles to start at a certain/random rotation I can make one property for that and then also an interpolation property so all particles rotate the same but look different.
 - Texture pool - selects texture for each particle from a pool of textures
-- Save to file, load from file
 - Fix blending. 1 pass with multiply blending, depth writing ON but testing OFF.
+- Fix random distribution in some spawn shapes
 - Toggleable HDR blur pass
     - Color data in particles is already HDR, just need to do a HDR pass.
 - Keyframes
