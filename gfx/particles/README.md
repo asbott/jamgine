@@ -5,6 +5,8 @@ Currently in a very early state and in active development.
 ![](/repo/emitter_v2_smoke.gif)
 
 ![](/repo/emitters_spawn_area.gif)
+
+![](/repo/emitter_v2_fire.gif)
 ---
 Here's a video with more action (click for youtube link):
 

@@ -72,7 +72,6 @@ scene : struct {
     pan : lin.Vector2,
     cam_distance : f32,
     camera_kind : Camera_Kind,
-    current_texture_path : string,
     clear_color : lin.Vector4,
     do_draw_gizmos : bool,
     using noserialize : struct {
@@ -103,8 +102,8 @@ init :: proc() -> bool {
 
     pfx.compile_emitter(&emitter);
 
-    if os.exists(current_texture_path) {
-        load_particle_texture_from_path(current_texture_path);
+    if os.exists(emitter.texture_path) {
+        load_particle_texture_from_path(emitter.texture_path);
     }
 
     gui_windows = slice.clone([]Gui_Window_Binding{
@@ -397,6 +396,10 @@ do_emitter_window :: proc(wnd : ^Gui_Window_Binding) {
             emitter, ok = serial.json_file_to_struct(path, pfx.Emitter);
             if !ok do log.error("Could not load json from file", path);
             emitter.noserialize = current;
+
+            if emitter.texture_path != "" {
+                load_particle_texture_from_path(emitter.texture_path);
+            }
         }
     }
     if igui.button("Save##EmitterEditor") {
@@ -604,7 +607,7 @@ load_particle_texture_from_path :: proc(texture_path : string) {
         }
 
         current_particle_texture = jvk.make_texture(w, h, builtin.raw_data(data), .SRGBA);
-        current_texture_path = texture_path;
+        emitter.texture_path = texture_path;
 
         pfx.set_particle_texture(&emitter, current_particle_texture);
     } else {

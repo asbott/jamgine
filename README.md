@@ -76,6 +76,7 @@ Note: Some implementation pages contain more information and showcases.
 
 ![](/repo/emitters_spawn_area.gif)
 ![](/repo/emitter_v2_smoke.gif)
+![](/repo/emitter_v2_fire.gif)
 
 - Implementation: https://github.com/asbott/jamgine/tree/main/gfx/particles
 - Test project: https://github.com/asbott/jamgine/tree/main/projects/emitters_test

@@ -188,6 +188,8 @@ Emitter :: struct {
 
     enable_depth_test : bool,
     enable_depth_write : bool,
+
+    texture_path : string, // For serialization. Should maybe not be here.
     
     state : Emitter_State,
     sw : time.Stopwatch,
