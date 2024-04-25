@@ -1,6 +1,6 @@
 # Immediate Mode GUI
 
-Made using my vulkan backend.
+Written from scratch, drawing with our imm renderer.
 
 ## API Example
 
@@ -53,7 +53,6 @@ Above code results in:
 - Click on slider should move handle there
 - Text box
 - Fix Bugs/Issues
-    - Text field h scrolling stopped working
     - Resize areas blocked by scrollbars
     - Mouse scroll blocked when any widget hovered (use CAPTURE_SCROLL flag)
     - Int drags are wonky (no decimal place interpolation)

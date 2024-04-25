@@ -110,8 +110,30 @@ igui.end_window();
 - Test project: Active in most projects
 
 ## Technical points of interest
-- [Vulkan Backend](/gfx/justvk)
-- GLSL [Lexer](/gfx/justvk/glsl_lexer.odin), [Parser](/gfx/justvk/glsl_parser.odin) and [Introspection](/gfx/justvk/glsl_inspect.odin)
+### [Vulkan Backend](/gfx/justvk)
+### GLSL [Lexer](/gfx/justvk/glsl_lexer.odin), [Parser](/gfx/justvk/glsl_parser.odin) and [Introspection](/gfx/justvk/glsl_inspect.odin)
+### [(Imm)edate Mode Renderer](/gfx/imm)
+```CPP
+//
+// 2D batch
+imm.set_default_2D_camera(...);
+imm.begin2d();
+
+// Z ignored in orthographic projection
+imm.push_translation({ 300, 300, 0 });
+imm.push_rotation_z(app.elapsed_seconds);
+
+// Rectangle at origin 0, 0 (we're using translation matrix) with size {100, 100}
+imm.rectangle({0, 0, 0}, {100, 100});
+
+imm.pop_transforms(2);
+
+// Render text with default font (or pass custom font to parameter 'font')
+imm.text("Some text", { x, y, 0 });
+
+imm.flush();
+
+```
 
 
 
