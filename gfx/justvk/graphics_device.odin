@@ -168,12 +168,20 @@ query_physical_device :: proc(pdevice : vk.PhysicalDevice) -> Graphics_Device {
     return gdevice;
 }
 
+// Designed to select a GPU for general purpose.
+// If user needs a more sophisticated algorithm he can query devices
+// and inspect them manually.
+// #Portability
+// This should be thoroughly tested on different computers.
 rate_graphics_device :: proc(gdevice : Graphics_Device) -> int {
     score := 0;
 
     type_scores := map[vk.PhysicalDeviceType]int {
         .INTEGRATED_GPU = 500,
         .DISCRETE_GPU = 1000,
+
+
+        // Not sure what these even are
         .VIRTUAL_GPU = 100,
         .CPU = 50,
     };
@@ -191,11 +199,41 @@ rate_graphics_device :: proc(gdevice : Graphics_Device) -> int {
 
     score += type_scores[gdevice.props.deviceType];
 
-    score += cast(int)gdevice.props.limits.maxImageDimension2D;
+    // VRAM is nice, give some score per GB
+    for i in 0..<int(gdevice.memory_props.memoryHeapCount) {
+        heap := gdevice.memory_props.memoryHeaps[i];
+        if .DEVICE_LOCAL in heap.flags {
+            size_bytes := int(heap.size);
 
+            GB :: 1024 * 1024 * 1024;
+
+            score_factor := 0;
+
+            if gdevice.props.deviceType == .DISCRETE_GPU {
+                score_factor = 100;
+            } else {
+                score_factor = 10; // It's just RAM in disguise...
+            }
+
+            score += score_factor * size_bytes / GB;
+
+        }
+    }
+
+    // On modern devices probably 16k-32k maybe even 64k 
+    max_image_dim := cast(int)gdevice.props.limits.maxImageDimension2D;
+    score += 50 * max_image_dim / 16384;
+
+    // 1024 on laptop RTX 3060
+    max_num_compute := cast(int)gdevice.props.limits.maxComputeWorkGroupInvocations;
+    score += 50 * max_num_compute / 512;
+
+    
     if gdevice.features.sampleRateShading do score += 100;
-
-    if !gdevice.features.geometryShader do return 0;
+    
+    if gdevice.features.geometryShader do score += 50;
+    
+    fmt.println(score);
 
     return score;
 }

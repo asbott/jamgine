@@ -195,9 +195,6 @@ init_and_open_window :: proc(title : cstring = "JAMGINE APP by CMQV", width := 1
     window = glfw.CreateWindow(cast(i32)width, cast(i32)height, title, nil, nil);
     jvk_init_result := jvk.init(string(title));
     assert(jvk_init_result, "Failed initializing jvk");
-    //devices : []jvk.Graphics_Device={{}, {}}; // #Temporary #Debug
-    //jvk.get_all_graphics_devices(&devices);
-    //device_context := jvk.make_device_context(devices[1]);
     device_context := jvk.make_device_context();
     jvk.set_target_device_context(device_context);
     window_surface = jvk.make_draw_surface(window, enable_depth_test=enable_depth_test);
