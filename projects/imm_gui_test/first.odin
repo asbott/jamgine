@@ -48,9 +48,6 @@ simulate_game :: proc() -> bool {
 
 draw_game :: proc() -> bool {
 
-    RAND_SEED :: 109481094;
-    id_rand := rand.create(RAND_SEED);
-
     igui.show_style_editor();
 
     {
