@@ -1262,7 +1262,8 @@ slider_raw :: proc(id : int, pos : lin.Vector2, align : Slider_Alignment, length
             current = handle_pos.y;
         }
     }
-    if is_widget_active(ctx) {
+    handle_active := is_widget_active(ctx);
+    if handle_active {
         value^ = clamp((current-start) / (end-start), 0, 1);
     }
     switch align {
@@ -1270,11 +1271,12 @@ slider_raw :: proc(id : int, pos : lin.Vector2, align : Slider_Alignment, length
         case .VERTICAL:   set_widget_y(start + (end - start) * value^);
     }
     
+
     end_panel(ctx); // Handle
 
     end_panel(ctx); // Slider
 
-    return last_value != value^;
+    return handle_active && last_value != value^;
 }
 
 // Does not copy the string, so it needs to be kept alive until draw
@@ -1641,19 +1643,19 @@ int_slider_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : 
     field_pos := lin.Vector2{pos.x + size.x/2 - field_size.x/2, pos.y};
     add_next_widget_flags({.FOCUS_REQUIRES_DOUBLE_CLICK}, ctx);
     
-    int_drag_raw(id, field_pos, field_size, value, rate=math.max(f32(max-min)/1000, 1.0), ctx=ctx);
+    drag_change := int_drag_raw(id, field_pos, field_size, value, rate=math.max(f32(max-min)/1000, 1.0), ctx=ctx);
     
     safe_space := style.widget_padding;
 
     factor := f32(value^-min) / f32(max-min);
     slider_size := lin.Vector2{size.x - field_size.x - safe_space, size.y};
     slider_pos := lin.Vector2{pos.x - size.x/2 + slider_size.x/2, pos.y};
-    slider_raw(id + 80, slider_pos, .HORIZONTAL, slider_size.x, &factor, ctx);
+    slider_change := slider_raw(id + 80, slider_pos, .HORIZONTAL, slider_size.x, &factor, ctx);
 
     last_value := value^;
     value^ = cast(int)(f32(max-min) * factor + f32(min));
 
-    return value^ != last_value;
+    return value^ != last_value && drag_change || slider_change;
 }
 
 f32_slider_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^f32, min, max : f32, using ctx := active_ctx) -> bool {
@@ -1665,19 +1667,19 @@ f32_slider_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : 
     field_size := lin.Vector2{field_text_size.x + style.field_padding * 2, fnt.font_size + style.field_padding*2};
     field_pos := lin.Vector2{pos.x + size.x/2 - field_size.x/2, pos.y};
     add_next_widget_flags({.FOCUS_REQUIRES_DOUBLE_CLICK}, ctx);
-    f32_drag_raw(id, field_pos, field_size, value, rate=(max-min)/1000, ctx=ctx);
+    drag_change := f32_drag_raw(id, field_pos, field_size, value, rate=(max-min)/1000, ctx=ctx);
     
     safe_space := style.widget_padding;
 
     factor := (value^-min) / (max-min);
     slider_size := lin.Vector2{size.x - field_size.x - safe_space, size.y};
     slider_pos := lin.Vector2{pos.x - size.x/2 + slider_size.x/2, pos.y};
-    slider_raw(id + 80, slider_pos, .HORIZONTAL, slider_size.x, &factor, ctx);
+    slider_change := slider_raw(id + 80, slider_pos, .HORIZONTAL, slider_size.x, &factor, ctx);
 
     last_value := value^;
     value^ = (max-min) * factor + min;
 
-    return value^ != last_value;
+    return value^ != last_value && drag_change || slider_change;
 }
 
 int_drag_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^int, min : Maybe(int) = nil, max : Maybe(int) = nil, rate : f32 = 1.0, using ctx := active_ctx) -> bool {
@@ -1744,10 +1746,28 @@ is_widget_active :: proc(using ctx := active_ctx) -> bool {
 
     return .ACTIVE in widget.state;
 }
+is_last_widget_active :: proc(using ctx := active_ctx) -> bool {
+
+    if state.last_widget == -1 do return false;
+
+    wid := state.last_widget;
+    widget := &state.widgets[wid];
+
+    return .ACTIVE in widget.state;
+}
 is_widget_focused :: proc(using ctx := active_ctx) -> bool {
     if len(state.id_stack) <= 0 do return false;
 
     wid := state.id_stack[len(state.id_stack)-1];
+    widget := &state.widgets[wid];
+
+    return .FOCUSED in widget.state;
+}
+is_last_widget_focused :: proc(using ctx := active_ctx) -> bool {
+
+    if state.last_widget == -1 do return false;
+
+    wid := state.last_widget;
     widget := &state.widgets[wid];
 
     return .FOCUSED in widget.state;

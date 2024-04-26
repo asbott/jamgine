@@ -43,9 +43,6 @@ simulate_game :: proc() -> bool {
 
 draw_game :: proc() -> bool {
 
-    RAND_SEED :: 109481094;
-    id_rand := rand.create(RAND_SEED);
-
     window_size := gfx.get_window_size();
     imm.set_default_2D_camera(window_size.x, window_size.y);
     imm.set_render_target(gfx.window_surface);
