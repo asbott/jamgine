@@ -366,10 +366,12 @@ do_compute :: proc(ctx : ^Compute_Context, x_elem_count : int, y_elem_count := 1
     local_size_x := max(ctx.shader.info.layout.local_size_x, 1);
     local_size_y := max(ctx.shader.info.layout.local_size_y, 1);
     local_size_z := max(ctx.shader.info.layout.local_size_z, 1);
-    group_size_x := (x_elem_count + local_size_x - 1) / local_size_x;
-    group_size_y := (y_elem_count + local_size_y - 1) / local_size_y;
-    group_size_z := (z_elem_count + local_size_z - 1) / local_size_z;
+    group_size_x := max((x_elem_count + local_size_x - 1) / local_size_x, 0);
+    group_size_y := max((y_elem_count + local_size_y - 1) / local_size_y, 0);
+    group_size_z := max((z_elem_count + local_size_z - 1) / local_size_z, 0);
 
+    if group_size_x == 0 && group_size_y == 0 && group_size_z == 0 do return;
+    
     if push_constant != nil && ctx.shader.info.layout.push_constant != nil {
         vk.CmdPushConstants(ctx.command_buffer, ctx.vk_layout, {.COMPUTE}, 0, cast(u32)ctx.shader.info.layout.push_constant.(Glsl_Field).type.size, push_constant);
     }

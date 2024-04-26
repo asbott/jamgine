@@ -7,7 +7,6 @@ import "jamgine:input"
 import "jamgine:osext"
 import "jamgine:utils"
 import "jamgine:lin"
-import "jamgine:bible"
 import "jamgine:serial"
 import jvk "jamgine:gfx/justvk"
 
@@ -1481,59 +1480,6 @@ But whoever lives by the truth comes into the light, so that it may be seen plai
         } else {
             return "No such command";
         }
-    });
-
-    bind_enum(bible.Book_Name);
-    bind_command("verse", proc(book : bible.Book_Name, chapter : int, verse : int) -> string {
-        verse, ok := bible.get_verse(book, chapter, verse);
-        if ok {
-            return verse;
-        } else {
-            return "No such verse found";
-        }
-    });
-    bind_command("chapter", proc(book : bible.Book_Name, chapter_num : int) -> string {
-        chapter, ok := bible.get_chapter(book, chapter_num);
-        if ok {
-            return chapter.display_text;
-        } else {
-            return "No such chapter found";
-        }
-    });
-    bind_command("book", proc(book_name : bible.Book_Name) -> string {
-        book, ok := bible.get_book(book_name);
-        if ok {
-            return book.display_text;
-        } else {
-            return "No such book found";
-        }
-    });
-    bind_command("passage", proc(book_name : bible.Book_Name, chap_start, verse_start, chap_end, verse_end : int) -> string {
-        builder : strings.Builder;
-        context.allocator = context.temp_allocator;
-        strings.builder_init(&builder);
-        for chap in chap_start..=chap_end {
-            chapter, ok := bible.get_chapter(book_name, chap);
-            if !ok do break;
-            min_ver, max_ver : int;
-            max_ver = len(chapter.verses);
-
-            if chap == chap_start do min_ver = verse_start;
-            if chap == chap_end do max_ver = verse_end;
-
-            min_ver = max(0, min_ver);
-            max_ver = min(max_ver, len(chapter.verses));
-
-            for ver in min_ver..<max_ver {
-                verse := chapter.verses[ver];
-                fmt.sbprintf(&builder, "[%i] %s ", ver, verse);
-            }
-        }
-        if strings.builder_len(builder) == 0 do return "Invalid passage";
-
-
-
-        return strings.to_string(builder);
     });
 
     bind_command("print_console_state", proc() -> string {
