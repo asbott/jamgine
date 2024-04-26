@@ -9,7 +9,6 @@ import "jamgine:lin"
 import "jamgine:utils"
 import jvk "jamgine:gfx/justvk"
 import igui "jamgine:gfx/imm/gui"
-import "jamgine:serial"
 
 import "core:math"
 import "core:math/rand"
@@ -24,15 +23,11 @@ main :: proc() {
     app.sim_proc      = simulate_game;
     app.draw_proc     = draw_game;
 
-    app.config.do_clear_window = true;
-    app.config.window_clear_color = gfx.CORNFLOWER_BLUE;
-    app.config.do_serialize_config = true;
-
     app.run();
 }
 
 init :: proc() -> bool {
-    serial.bind_struct_data_to_file(&igui.get_current_context().style, "style.sync", .WRITE_CHANGES_TO_DISK);
+    
     return true;
 }
 shutdown :: proc() -> bool {
@@ -48,10 +43,12 @@ simulate_game :: proc() -> bool {
 
 draw_game :: proc() -> bool {
 
-    RAND_SEED :: 109481094;
-    id_rand := rand.create(RAND_SEED);
-
-    igui.show_style_editor();
+    window_size := gfx.get_window_size();
+    imm.set_default_2D_camera(window_size.x, window_size.y);
+    imm.set_render_target(gfx.window_surface);
+    imm.begin2d();
+    imm.clear_target({.7, .7, .7, 1.0});
+    imm.flush();
 
     {
         igui.begin_window("Test");
@@ -112,21 +109,15 @@ draw_game :: proc() -> bool {
         }
         {
             @(static)
-            rgba_value : lin.Vector4;
-            igui.f32rgba_drag("Color drag", &rgba_value, min=0.0);
-        }
-        {
-            @(static)
             toggle : bool;
 
-            igui.columns(3);
+            igui.columns(2);
             if igui.button("Press Me") {
                 toggle = true;
             }
             if igui.button("Reset") {
                 toggle = false;
             }
-            igui.button("Hey");
             igui.columns(1);
             if toggle {
                 igui.label("Thanks!");
