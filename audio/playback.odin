@@ -30,6 +30,8 @@ Playback_Context :: struct {
     mix_buffer : rawptr, // #Memory
     conversion_buffer : rawptr, // #Memory
     mix_buffer_size : int,
+
+    sampler_id : int,
 }
 
 make_playback_context :: proc(output_format : Audio_Format, postprocess_mixer_proc : Mixer_Proc = nil, using dc := target_dc) -> ^Playback_Context {
@@ -42,7 +44,7 @@ make_playback_context :: proc(output_format : Audio_Format, postprocess_mixer_pr
 
     pc.postprocess_mixer_proc = postprocess_mixer_proc;
 
-    add_sampler(proc(dc : ^Device_Context, output, input : rawptr, out_frame_count : int, user_data : rawptr) {
+    pc.sampler_id = add_sampler(proc(dc : ^Device_Context, output, input : rawptr, out_frame_count : int, user_data : rawptr) {
         pc := cast(^Playback_Context)user_data;
 
         if out_frame_count == 0 do return;
@@ -149,6 +151,8 @@ destroy_playback_context :: proc(pc : ^Playback_Context) {
     using pc.dc;
 
     sync.lock(&pc.mtx);
+
+    remove_sampler(pc.sampler_id, pc.dc);
 
     for i := utils.bucket_array_len(pc.simple_players)-1; i >= 0; i -= 1 {
         p := utils.bucket_array_get_ptr(&pc.simple_players, i);

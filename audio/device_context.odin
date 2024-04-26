@@ -53,7 +53,7 @@ make_audio_format :: proc(kind : Audio_Format_Type_Flag, channels : int, sample_
     return {kind, channels, sample_rate}
 }
 
-add_sampler :: proc(callback : Device_Sample_Callback_Proc, output_format : Audio_Format, user_data : rawptr, using dc := target_dc) {
+add_sampler :: proc(callback : Device_Sample_Callback_Proc, output_format : Audio_Format, user_data : rawptr, using dc := target_dc) -> int{
     sync.lock(&mtx);
     defer sync.unlock(&mtx);
     append(&sample_callbacks, type_of(sample_callbacks[0]) {
@@ -64,6 +64,7 @@ add_sampler :: proc(callback : Device_Sample_Callback_Proc, output_format : Audi
     });
 
     dc.next_sampler_id += 1;
+    return dc.next_sampler_id;
 }
 remove_sampler :: proc(id : int, using dc := target_dc) {
     sync.lock(&mtx);
