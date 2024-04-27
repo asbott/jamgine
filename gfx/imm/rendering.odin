@@ -1,7 +1,5 @@
 package imm
 
-import jvk "jamgine:gfx/justvk"
-import "vendor:glfw"
 import "core:log"
 import "../../gfx"
 import "core:builtin"
@@ -14,9 +12,11 @@ import "core:fmt"
 import "core:slice"
 import "core:strings"
 
+import jvk "jamgine:gfx/justvk"
 import gfxtext "jamgine:gfx/text"
 import "jamgine:lin"
 
+import "vendor:glfw"
 import vk "vendor:vulkan"
 
 // The maxPerStageDescriptorSamplers may be a lot higher (~1000000 on my device) but
@@ -59,7 +59,6 @@ VERTEX_TYPE_SHADOW_RECT :: 3
 DATA_INDEX_SCISSOR_INDEX :: 0
 DATA_INDEX_TEXTURE_INDEX :: 1
 DATA_INDEX_VERTEX_TYPE :: 2
-
 
 Vertex :: struct #packed {
     pos          : lin.Vector3,
@@ -442,6 +441,16 @@ set_scissor_box :: proc(x, y, width, height : f32, using ctx := imm_context) {
     stats.num_scissors += 1;
 }
 
+// #Incomplete
+// Per vertex texture
+vertex :: proc(pos : lin.Vector3, color := gfx.WHITE, uv := lin.Vector2{0,0}, normal := lin.Vector3{0, 0, 0}, vertex_type : i32 = VERTEX_TYPE_REGULAR, using ctx := imm_context) -> ^Vertex {
+    v := _make_vertex(ctx, transform_pos(front_transform, pos) if len(transform_stack) > 0 else pos, tint=color, uv=uv, vertex_type=vertex_type);
+
+    append(&indices, cast(u32)len(vertices));
+    append(&vertices, v);
+
+    return &vertices[len(vertices)-1];
+}
 
 rectangle_by_bounds :: proc(p : lin.Vector3, size : lin.Vector2, using ctx := imm_context, color := gfx.WHITE, texture : Maybe(jvk.Texture) = nil, uv_range := lin.Vector4{0, 0, 1, 1}, vertex_type :i32= VERTEX_TYPE_REGULAR) -> []Vertex {
     hs := size / 2;
@@ -722,7 +731,7 @@ circle :: proc(p : lin.Vector3, radius : f32, color := gfx.WHITE, using ctx := i
 
 line :: proc(p0, p1 : lin.Vector3, thickness :f32= 1, color := gfx.WHITE, using ctx := imm_context) -> []Vertex {
 
-    is_orthographic := abs(camera.proj[3][3]) == 1.0 && camera.proj[2][3] == 0.0;  // Simple check to guess orthographic projection
+    is_orthographic := abs(camera.proj[3][3]) == 1.0 && camera.proj[2][3] == 0.0;
 
     if is_orthographic {
         dir := lin.normalize(p1 - p0);
@@ -736,7 +745,7 @@ line :: proc(p0, p1 : lin.Vector3, thickness :f32= 1, color := gfx.WHITE, using 
         BR := p0 + right_norm;
     
         return rectangle_by_aabb(
-            BL, TL, TR, BR,
+            BL, BR, TR, TL,
             color, ctx
         );
     } else {

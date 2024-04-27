@@ -16,8 +16,7 @@ main :: proc() {
             if e.action == glfw.PRESS && e.key == glfw.KEY_ESCAPE do running = false;
         }
 
-        // Swap buffers, etc
-        gfx.update_window();
+        gfx.swap_buffers();
     }
 
     gfx.shutdown();

@@ -228,14 +228,12 @@ take_window_event :: proc($T : typeid) -> (^T) {
 
 
 collect_window_events :: proc() {
-    glfw.PollEvents();
-}
-// Clears events, swaps buffers, and clears front buffer
-// #Rename
-update_window :: proc() {    
     default_context = context;
     clear(&window_events);
+    glfw.PollEvents();
+}
 
+swap_buffers :: proc() {    
     jvk.present_surface(window_surface);
 }
 

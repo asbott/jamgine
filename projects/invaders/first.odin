@@ -109,7 +109,7 @@ main :: proc() {
         imm.set_render_target(gfx.window_surface);
         console.draw();
         
-        gfx.update_window();
+        gfx.swap_buffers();
         last_imm_stats = imm.get_current_context().stats;
         imm.reset_stats();
     }

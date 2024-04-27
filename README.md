@@ -23,7 +23,7 @@ I can be reached at charlie.malmqvist1@gmail.com.
     - [Hello imm_gui](#hello-imm_gui)
     - [Hello Console](#hello-console)
     - [Hello Everything](#hello-everything) (App configuration)
-- [Upcoming Features](#upcoming-features)
+- [Upcoming](#upcoming)
 
 # Jamgine
 <b>Designed for good programmers.</b>
@@ -166,8 +166,7 @@ main :: proc() {
             if e.action == glfw.PRESS && e.key == glfw.KEY_ESCAPE do running = false;
         }
 
-        // Swap buffers, etc
-        gfx.update_window();
+        gfx.swap_buffers();
     }
 
     gfx.shutdown();
@@ -249,8 +248,7 @@ main :: proc() {
             if key_event.action == glfw.PRESS && key_event.key == glfw.KEY_ESCAPE do running = false;
         }
 
-        // Swap buffers etc
-        gfx.update_window();
+        gfx.swap_buffers();
     }
 
     // Cleanup
@@ -327,7 +325,7 @@ main :: proc() {
             if e.action == glfw.PRESS && e.key == glfw.KEY_ESCAPE do running = false;
         }
 
-        gfx.update_window();
+        gfx.swap_buffers();
     }
 
     // Cleanup
@@ -395,7 +393,7 @@ main :: proc() {
         
         igui.draw();
         
-        gfx.update_window();
+        gfx.swap_buffers();
 
         // Grab the first key event if there was one such last frame
         if e := gfx.take_window_event(gfx.Window_Key_Event); e != nil {
@@ -470,7 +468,7 @@ main :: proc() {
 
         console.draw();
         
-        gfx.update_window();
+        gfx.swap_buffers();
 
         // Grab the first key event if there was one such last frame
         if e := gfx.take_window_event(gfx.Window_Key_Event); e != nil {
@@ -561,7 +559,7 @@ draw_app :: proc() -> bool {
 ![](/repo/example_hello_everything.gif)
 
 ## Upcoming
-- Audio playback library (miniaudio backend)
+- Audio playback library (miniaudio backend) ([See Audio Branch](https://github.com/asbott/jamgine/tree/audio/audio))
 - Basic 3D models (v1)
     - .obj loading
     - Mesh animation

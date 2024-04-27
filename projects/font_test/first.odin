@@ -72,6 +72,6 @@ main :: proc() {
 
         console.draw();
 
-        gfx.update_window();
+        gfx.swap_buffers();
     }
 }

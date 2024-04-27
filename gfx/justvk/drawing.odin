@@ -308,7 +308,7 @@ make_pipeline :: proc(program : Shader_Program, render_pass : Render_Pass, enabl
     rasterizer.rasterizerDiscardEnable = false;
     rasterizer.polygonMode = .FILL;
     rasterizer.lineWidth = 1.0;
-    rasterizer.cullMode = {};
+    rasterizer.cullMode = {.BACK};
     rasterizer.frontFace = .CLOCKWISE;
     rasterizer.depthBiasEnable = false;
     rasterizer.depthBiasConstantFactor = 0.0;

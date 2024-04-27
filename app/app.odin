@@ -189,7 +189,7 @@ FPS: %f `, imm_stats.num_vertices, imm_stats.num_indices, imm_stats.num_scissors
         else              do igui.clear_frame(); // Clear gui calls without drawing if not enabled
         console.draw();
 
-        gfx.update_window();
+        gfx.swap_buffers();
 
         last_imm_stats = imm.get_current_context().stats;
         imm.reset_stats();

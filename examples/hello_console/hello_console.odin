@@ -53,7 +53,7 @@ main :: proc() {
 
         console.draw();
         
-        gfx.update_window();
+        gfx.swap_buffers();
 
         // Grab the first key event if there was one such last frame
         if e := gfx.take_window_event(gfx.Window_Key_Event); e != nil {

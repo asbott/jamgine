@@ -1116,7 +1116,7 @@ separator :: proc(using ctx := active_ctx) {
         spacing(ctx=ctx);
     }
 
-    {
+    if style.separator_thickness > 0 {
         window := state.widgets[window_id].window.(Window_State);
         window_pos := get_final_pos(ctx, &state.widgets[window_id]);
         cmd : Draw_Command_Line;
@@ -1127,7 +1127,7 @@ separator :: proc(using ctx := active_ctx) {
         adjust_pos_for_parent_scroll(ctx, &state.widgets[window_id], &cmd.b);
         cmd.color = style.separator_color;
         add_draw_command(ctx, cmd, get_widget_priority(ctx, &state.widgets[window_id]));
-        move_pen_after_widget({0, 1}, ctx);
+        move_pen_after_widget({0, style.separator_thickness}, ctx);
     }
     spacing(style.widget_padding, ctx);
 }
@@ -1218,7 +1218,7 @@ begin_panel :: proc(id : int, flags : Widget_Flags, using ctx := active_ctx) {
         cmd.color = get_widget_color(ctx, widget);
         add_draw_command(ctx, cmd, prio);
     }
-    {
+    if widget.style.border_width > 0 {
         cmd : Draw_Command_Line;
         cmd.color = widget.style.border_color;
         cmd.thickness = widget.style.border_width;
@@ -1535,16 +1535,18 @@ checkbox_raw :: proc(id : int, pos : lin.Vector2, size : lin.Vector2, value : ^b
         p2 := visual_pos + lin.Vector2{0, -size.y/2 + style.field_padding};
         p3 := visual_pos + lin.Vector2{size.x/2 - style.field_padding, size.y/2 - style.field_padding};
 
-        cmd : Draw_Command_Line;
-        cmd.color = style.checkmark_color;
-        cmd.thickness = style.checkmark_width
-
-        cmd.a = p1;
-        cmd.b = p2;
-        add_draw_command(ctx, cmd);
-        cmd.a = p2;
-        cmd.b = p3;
-        add_draw_command(ctx, cmd);
+        if style.checkmark_width > 0 {
+            cmd : Draw_Command_Line;
+            cmd.color = style.checkmark_color;
+            cmd.thickness = style.checkmark_width
+    
+            cmd.a = p1;
+            cmd.b = p2;
+            add_draw_command(ctx, cmd);
+            cmd.a = p2;
+            cmd.b = p3;
+            add_draw_command(ctx, cmd);
+        }
     }
 
     end_panel(ctx);
